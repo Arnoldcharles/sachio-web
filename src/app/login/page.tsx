@@ -49,7 +49,7 @@ export default function LoginPage() {
               setEmail(e.target.value);
               setError(null);
             }}
-            placeholder="email"
+            placeholder="Email"
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-inner focus:border-emerald-400 focus:outline-none"
           />
           {error ? <p className="text-sm font-semibold text-red-600">{error}</p> : null}
