@@ -6,6 +6,7 @@ import { db } from "../lib/firebase";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
+import Image from "next/image";
 
 type Stat = { label: string; value: string; delta?: string; tone?: "green" | "orange" | "red" };
 type Announcement = { id: string; title: string; message: string; createdAt?: Date | null };
@@ -390,8 +391,13 @@ export default function Home() {
           transition={{ duration: 0.5 }}
         >
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Sachio Admin</p>
-            <h1 className="text-2xl font-black text-slate-900">Operations Dashboard</h1>
+            <div className="flex items-center gap-3">
+              <Image src="/logo (1).png" alt="Sachio logo" width={42} height={42} className="rounded-lg" />
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Sachio Mobile Toilets</p>
+                <h1 className="text-2xl font-black text-slate-900">Operations Dashboard</h1>
+              </div>
+            </div>
             <p className="text-sm text-slate-500">Track revenue, orders, rentals, and delivery performance.</p>
             {role ? (
               <p className="mt-1 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
@@ -406,12 +412,6 @@ export default function Home() {
               onClick={handleExport}
             >
               Export
-            </button>
-            <button
-              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
-              onClick={handleLogout}
-            >
-              Logout
             </button>
             {role === "superadmin" ? (
               <button

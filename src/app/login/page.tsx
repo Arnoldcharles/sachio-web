@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, doc, getDocs, limit, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import Image from "next/image";
 
 const ADMIN_UID = "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2";
 const ADMIN_EMAIL = "arnoldcharles028@gmail.com";
@@ -77,8 +78,13 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-900 flex items-center justify-center px-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Sachio Admin</p>
-        <h1 className="mt-1 text-2xl font-black text-slate-900">Sign in</h1>
+        <div className="flex items-center gap-3">
+          <Image src="/logo (1).png" alt="Sachio logo" width={40} height={40} className="rounded-lg" />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Sachio Mobile Toilets</p>
+            <h1 className="text-2xl font-black text-slate-900">Sign in</h1>
+          </div>
+        </div>
         <p className="text-sm text-slate-500">Enter the admin email to continue.</p>
 
         <div className="mt-5 space-y-3">
