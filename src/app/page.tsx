@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { addDoc, collection, getDocs, limit, orderBy, query, serverTimestamp } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 
 type Stat = { label: string; value: string; delta?: string; tone?: "green" | "orange" | "red" };
 type Announcement = { id: string; title: string; message: string; createdAt?: Date | null };
@@ -31,6 +32,9 @@ type DashboardData = {
   alerts: Alert[];
   revenueTrend: TrendPoint[];
 };
+
+const ADMIN_UID = "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2";
+const ADMIN_EMAIL = "arnoldcharles028@gmail.com";
 
 const fallbackData: DashboardData = {
   categories: [
@@ -79,10 +83,20 @@ const fallbackData: DashboardData = {
 };
 
 export default function Home() {
+  const router = useRouter();
   const [data, setData] = useState<DashboardData>(fallbackData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [announcing, setAnnouncing] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedUid = localStorage.getItem("sachio_admin_uid");
+    const storedEmail = localStorage.getItem("sachio_admin_email");
+    if (storedUid !== ADMIN_UID || storedEmail !== ADMIN_EMAIL) {
+      router.push("/login");
+    }
+  }, [router]);
 
   const handleExport = () => {
     if (typeof window === "undefined") return;
