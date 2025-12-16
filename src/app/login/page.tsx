@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { db } from "../../lib/firebase";
 
 const ADMIN_UID = "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2";
 const ADMIN_EMAIL = "arnoldcharles028@gmail.com";
@@ -13,20 +15,39 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const storedUid = localStorage.getItem("sachio_admin_uid");
     const storedEmail = localStorage.getItem("sachio_admin_email");
-    if (storedUid === ADMIN_UID && storedEmail === ADMIN_EMAIL) {
+    const role = localStorage.getItem("sachio_admin_role");
+    if (storedEmail && role) {
       router.replace("/");
     }
   }, [router]);
 
-  const handleLogin = () => {
-    if (email.trim().toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
-      setError("Unauthorized email. Please use the admin email.");
+  const handleLogin = async () => {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed) {
+      setError("Email is required.");
       return;
     }
-    localStorage.setItem("sachio_admin_uid", ADMIN_UID);
-    localStorage.setItem("sachio_admin_email", ADMIN_EMAIL);
+    // Superadmin path
+    if (trimmed === ADMIN_EMAIL.toLowerCase()) {
+      localStorage.setItem("sachio_admin_uid", ADMIN_UID);
+      localStorage.setItem("sachio_admin_email", ADMIN_EMAIL);
+      localStorage.setItem("sachio_admin_role", "superadmin");
+    } else {
+      // Staff path
+      localStorage.setItem("sachio_admin_uid", `staff-${trimmed}`);
+      localStorage.setItem("sachio_admin_email", trimmed);
+      localStorage.setItem("sachio_admin_role", "staff");
+      try {
+        await setDoc(
+          doc(db, "staffSessions", trimmed),
+          { email: trimmed, role: "staff", status: "online", lastActive: serverTimestamp() },
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn("Could not record staff session", err);
+      }
+    }
     router.replace("/");
   };
 

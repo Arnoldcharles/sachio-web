@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from "react";
-import { addDoc, collection, getDocs, limit, orderBy, query, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, doc, getDocs, limit, orderBy, query, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { useMemo } from "react";
 
 type Stat = { label: string; value: string; delta?: string; tone?: "green" | "orange" | "red" };
 type Announcement = { id: string; title: string; message: string; createdAt?: Date | null };
@@ -23,6 +24,7 @@ type Category = { id: string; name: string; segment?: string; count?: number; im
 type Lane = { label: string; value: number };
 type Alert = { title: string; tone: "red" | "amber" | "emerald" };
 type TrendPoint = { label: string; value: number };
+type StaffSession = { email: string; role: string; status?: string; lastActive?: Date | null };
 type DashboardData = {
   stats: Stat[];
   orders: Order[];
@@ -32,6 +34,12 @@ type DashboardData = {
   alerts: Alert[];
   revenueTrend: TrendPoint[];
 };
+
+const trendOptions = [
+  { label: "Last 7 days", days: 7 },
+  { label: "Last 14 days", days: 14 },
+  { label: "Last 30 days", days: 30 },
+];
 
 const ADMIN_UID = "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2";
 const ADMIN_EMAIL = "arnoldcharles028@gmail.com";
@@ -88,15 +96,71 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [announcing, setAnnouncing] = useState(false);
+  const [trendDays, setTrendDays] = useState<number>(7);
+  const [role, setRole] = useState<"superadmin" | "staff" | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
+  const [staffSessions, setStaffSessions] = useState<StaffSession[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const storedUid = localStorage.getItem("sachio_admin_uid");
     const storedEmail = localStorage.getItem("sachio_admin_email");
-    if (storedUid !== ADMIN_UID || storedEmail !== ADMIN_EMAIL) {
+    const storedRole = (localStorage.getItem("sachio_admin_role") as "superadmin" | "staff" | null) || null;
+    if (!storedEmail || !storedRole) {
       router.push("/login");
+      return;
     }
+    setRole(storedRole);
+    setEmail(storedEmail);
   }, [router]);
+
+  const touchStaffSession = async (status: "online" | "offline", emailValue?: string | null, roleValue?: string | null) => {
+    const resolvedEmail = emailValue ?? email;
+    const resolvedRole = roleValue ?? role;
+    if (!resolvedEmail || resolvedRole !== "staff") return;
+    try {
+      await setDoc(
+        doc(db, "staffSessions", resolvedEmail),
+        { email: resolvedEmail, role: resolvedRole, status, lastActive: serverTimestamp() },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn("Staff session update failed", err);
+    }
+  };
+
+  useEffect(() => {
+    if (role !== "staff" || !email) return;
+    touchStaffSession("online", email, role);
+  }, [role, email]);
+
+  useEffect(() => {
+    if (role !== "superadmin") return;
+    let mounted = true;
+    async function loadStaffSessions() {
+      try {
+        const snap = await getDocs(query(collection(db, "staffSessions"), orderBy("lastActive", "desc")));
+        if (!mounted) return;
+        const sessions: StaffSession[] = snap.docs.map((docSnap) => {
+          const d = docSnap.data() as any;
+          return {
+            email: d.email ?? docSnap.id,
+            role: d.role ?? "staff",
+            status: d.status ?? "online",
+            lastActive: d.lastActive?.toDate ? d.lastActive.toDate() : null,
+          };
+        });
+        setStaffSessions(sessions);
+      } catch (err) {
+        console.warn("Staff sessions fetch failed", err);
+      }
+    }
+    loadStaffSessions();
+    const interval = setInterval(loadStaffSessions, 20000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [role]);
 
   const handleExport = () => {
     if (typeof window === "undefined") return;
@@ -202,6 +266,17 @@ export default function Home() {
     window.location.href = "/announcements";
   };
 
+  const handleLogout = async () => {
+    if (typeof window === "undefined") return;
+    const storedEmail = localStorage.getItem("sachio_admin_email");
+    const storedRole = localStorage.getItem("sachio_admin_role");
+    await touchStaffSession("offline", storedEmail, storedRole);
+    localStorage.removeItem("sachio_admin_uid");
+    localStorage.removeItem("sachio_admin_email");
+    localStorage.removeItem("sachio_admin_role");
+    window.location.href = "/login";
+  };
+
   useEffect(() => {
     let mounted = true;
     async function load() {
@@ -286,7 +361,7 @@ export default function Home() {
         const derivedAlerts =
           alerts.length === 0 ? buildAlertsFromData(rawOrders, products) : alerts;
 
-        const revenueTrend = buildRevenueTrend(rawOrders);
+        const revenueTrend = buildRevenueTrend(rawOrders, trendDays);
 
         if (!mounted) return;
         setData({
@@ -310,7 +385,7 @@ export default function Home() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [trendDays]);
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-900">
@@ -325,6 +400,12 @@ export default function Home() {
             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Sachio Admin</p>
             <h1 className="text-2xl font-black text-slate-900">Operations Dashboard</h1>
             <p className="text-sm text-slate-500">Track revenue, orders, rentals, and delivery performance.</p>
+            {role ? (
+              <p className="mt-1 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                Logged in as <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold">{role}</span>
+                {email ? <span className="text-[11px] text-slate-500">{email}</span> : null}
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-3">
             <button
@@ -333,6 +414,20 @@ export default function Home() {
             >
               Export
             </button>
+            <button
+              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+              onClick={handleLogout}
+            >
+              Logout
+            </button>
+            {role === "superadmin" ? (
+              <button
+                className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                onClick={() => (window.location.href = "/staff/new")}
+              >
+                Manage staff
+              </button>
+            ) : null}
             <button
               className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
               onClick={() => (window.location.href = "/announcements")}
@@ -349,29 +444,79 @@ export default function Home() {
           </div>
         </motion.header>
 
-        <section className="grid gap-4 xs:grid-cols-2 lg:grid-cols-4">
-          {data.stats.map((stat, idx) => (
-            <motion.div
-              key={stat.label}
-              className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.08 }}
-            >
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
-              <p className="mt-2 text-xl font-black text-slate-900">{stat.value}</p>
-              {stat.delta ? (
-                <p
-                  className={`mt-1 text-xs font-bold ${
-                    stat.tone === "red" ? "text-red-600" : stat.tone === "orange" ? "text-amber-600" : "text-emerald-600"
-                  }`}
-                >
-                  {stat.delta} vs last week
-                </p>
-              ) : null}
-            </motion.div>
-          ))}
-        </section>
+        {role === "superadmin" ? (
+          <motion.div
+            className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Staff presence</p>
+                <h3 className="text-sm font-bold text-slate-900">Currently logged in</h3>
+              </div>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700">
+                {staffSessions.filter((s) => s.status !== "offline").length} online
+              </span>
+            </div>
+            {staffSessions.length ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {staffSessions.map((session) => {
+                  const isOnline = session.status !== "offline";
+                  const lastSeen =
+                    session.lastActive instanceof Date
+                      ? session.lastActive.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                      : "—";
+                  return (
+                    <span
+                      key={session.email}
+                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ring-1 ${
+                        isOnline ? "bg-emerald-50 text-emerald-700 ring-emerald-100" : "bg-slate-50 text-slate-600 ring-slate-200"
+                      }`}
+                    >
+                      {session.email}
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          isOnline ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.2)]" : "bg-slate-400"
+                        }`}
+                      />
+                      <span className="text-[10px] font-medium text-slate-500">Last active {lastSeen}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs font-semibold text-slate-500">No staff sessions yet.</p>
+            )}
+          </motion.div>
+        ) : null}
+
+        {role === "staff" ? null : (
+          <section className="grid gap-4 xs:grid-cols-2 lg:grid-cols-4">
+            {data.stats.map((stat, idx) => (
+              <motion.div
+                key={stat.label}
+                className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.08 }}
+              >
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
+                <p className="mt-2 text-xl font-black text-slate-900">{stat.value}</p>
+                {stat.delta ? (
+                  <p
+                    className={`mt-1 text-xs font-bold ${
+                      stat.tone === "red" ? "text-red-600" : stat.tone === "orange" ? "text-amber-600" : "text-emerald-600"
+                    }`}
+                  >
+                    {stat.delta} vs last week
+                  </p>
+                ) : null}
+              </motion.div>
+            ))}
+          </section>
+        )}
 
         <section className="grid gap-4 lg:grid-cols-3">
           <motion.div
@@ -531,7 +676,8 @@ export default function Home() {
         </section>
 
         <section className="grid gap-4 lg:grid-cols-3">
-          <motion.div
+          {role === "staff" ? null : (
+            <motion.div
             className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -610,7 +756,8 @@ export default function Home() {
                 ))}
               </div>
             </div>
-          </motion.div>
+            </motion.div>
+          )}
 
           <motion.div
             className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
@@ -645,7 +792,8 @@ export default function Home() {
         </section>
 
         <section className="grid gap-4 lg:grid-cols-3">
-          <motion.div
+          {role === "staff" ? null : (
+            <motion.div
             className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -654,7 +802,20 @@ export default function Home() {
           >
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h2 className="text-lg font-bold text-slate-900">Revenue Trend</h2>
-              <span className="text-xs font-semibold text-emerald-700">Last 7 days</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-500">Range</span>
+                <select
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+                  value={trendDays}
+                  onChange={(e) => setTrendDays(Number(e.target.value))}
+                >
+                  {trendOptions.map((opt) => (
+                    <option key={opt.days} value={opt.days}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-4 rounded-xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-3 lg:grid-cols-7">
               {(() => {
@@ -678,7 +839,8 @@ export default function Home() {
                 });
               })()}
             </div>
-          </motion.div>
+            </motion.div>
+          )}
           <motion.div
             className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
             initial={{ opacity: 0, y: 20 }}
@@ -823,10 +985,11 @@ function buildAlertsFromData(orders: RawOrder[], products: Product[]) {
   return alerts;
 }
 
-function buildRevenueTrend(orders: RawOrder[]): TrendPoint[] {
+function buildRevenueTrend(orders: RawOrder[], windowDays = 7): TrendPoint[] {
   const today = new Date();
   const buckets: Record<string, TrendPoint> = {};
-  for (let i = 6; i >= 0; i--) {
+  const span = Math.max(1, windowDays - 1);
+  for (let i = span; i >= 0; i--) {
     const date = new Date(today);
     date.setDate(today.getDate() - i);
     const key = date.toISOString().slice(0, 10);
