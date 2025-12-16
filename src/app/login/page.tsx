@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, doc, getDocs, limit, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 
 const ADMIN_UID = "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2";
@@ -12,6 +12,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -22,12 +23,22 @@ export default function LoginPage() {
     }
   }, [router]);
 
+  const findStaffAccount = async (mail: string) => {
+    const snap = await getDocs(query(collection(db, "staffAccounts"), where("email", "==", mail), limit(1)));
+    if (!snap.empty) {
+      const docSnap = snap.docs[0];
+      return { id: docSnap.id, ...docSnap.data() } as any;
+    }
+    return null;
+  };
+
   const handleLogin = async () => {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed) {
       setError("Email is required.");
       return;
     }
+    setLoading(true);
     // Superadmin path
     if (trimmed === ADMIN_EMAIL.toLowerCase()) {
       localStorage.setItem("sachio_admin_uid", ADMIN_UID);
@@ -35,6 +46,17 @@ export default function LoginPage() {
       localStorage.setItem("sachio_admin_role", "superadmin");
     } else {
       // Staff path
+      const staffAccount = await findStaffAccount(trimmed);
+      if (!staffAccount) {
+        setError("You are not authorized as staff.");
+        setLoading(false);
+        return;
+      }
+      if (staffAccount.blocked) {
+        setError("This staff account is blocked. Contact your administrator.");
+        setLoading(false);
+        return;
+      }
       localStorage.setItem("sachio_admin_uid", `staff-${trimmed}`);
       localStorage.setItem("sachio_admin_email", trimmed);
       localStorage.setItem("sachio_admin_role", "staff");
@@ -49,6 +71,7 @@ export default function LoginPage() {
       }
     }
     router.replace("/");
+    setLoading(false);
   };
 
   return (
@@ -78,9 +101,10 @@ export default function LoginPage() {
 
         <button
           onClick={handleLogin}
-          className="mt-5 w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+          disabled={loading}
+          className="mt-5 w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
         >
-          Continue
+          {loading ? "Please wait..." : "Continue"}
         </button>
       </div>
     </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from "react";
-import { addDoc, collection, doc, getDocs, limit, orderBy, query, serverTimestamp, setDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
@@ -247,6 +247,30 @@ export default function Home() {
   };
 
   useEffect(() => {
+    if (role !== "staff" || !email) return;
+    let cancelled = false;
+    const checkBlocked = async () => {
+      try {
+        const snap = await getDocs(query(collection(db, "staffAccounts"), where("email", "==", email), limit(1)));
+        const docSnap = snap.docs[0];
+        const data = docSnap?.data() as any;
+        if (!cancelled && data?.blocked) {
+          alert("Your staff access has been blocked. Please contact an administrator.");
+          handleLogout();
+        }
+      } catch (err) {
+        // ignore fetch errors to avoid blocking dashboard
+      }
+    };
+    checkBlocked();
+    const interval = setInterval(checkBlocked, 20000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [role, email]);
+
+  useEffect(() => {
     let mounted = true;
     async function load() {
       try {
@@ -402,6 +426,12 @@ export default function Home() {
               onClick={() => (window.location.href = "/announcements")}
             >
               Announcements
+            </button>
+            <button
+              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+              onClick={() => (window.location.href = "/users")}
+            >
+              Users
             </button>
             <button
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
