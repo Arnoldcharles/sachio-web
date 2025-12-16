@@ -1,12 +1,14 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from "react";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, getDocs, orderBy, query, serverTimestamp } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { db } from "../../../lib/firebase";
 
 const ADMIN_UID = "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2";
 const ADMIN_EMAIL = "arnoldcharles028@gmail.com";
+
+type StaffSession = { email: string; role: string; status?: string; lastActive?: Date | null };
 
 export default function NewStaffPage() {
   const router = useRouter();
@@ -15,6 +17,7 @@ export default function NewStaffPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [staffSessions, setStaffSessions] = useState<StaffSession[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -26,6 +29,27 @@ export default function NewStaffPage() {
     if (!isSuper) {
       router.replace("/login");
     }
+
+    async function loadStaffSessions() {
+      try {
+        const snap = await getDocs(query(collection(db, "staffSessions"), orderBy("lastActive", "desc")));
+        const sessions: StaffSession[] = snap.docs.map((docSnap) => {
+          const d = docSnap.data() as any;
+          return {
+            email: d.email ?? docSnap.id,
+            role: d.role ?? "staff",
+            status: d.status ?? "online",
+            lastActive: d.lastActive?.toDate ? d.lastActive.toDate() : null,
+          };
+        });
+        setStaffSessions(sessions);
+      } catch (err) {
+        console.warn("Staff sessions fetch failed", err);
+      }
+    }
+    loadStaffSessions();
+    const interval = setInterval(loadStaffSessions, 20000);
+    return () => clearInterval(interval);
   }, [router]);
 
   const onSubmit = async (e: FormEvent) => {
@@ -74,6 +98,51 @@ export default function NewStaffPage() {
           >
             Back to dashboard
           </button>
+        </div>
+
+        <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Staff presence
+              </p>
+              <h3 className="text-sm font-bold text-slate-900">Currently logged in</h3>
+            </div>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700">
+              {staffSessions.filter((s) => s.status !== "offline").length} online
+            </span>
+          </div>
+          {staffSessions.length ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {staffSessions.map((session) => {
+                const isOnline = session.status !== "offline";
+                const lastSeen =
+                  session.lastActive instanceof Date
+                    ? session.lastActive.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    : "—";
+                return (
+                  <span
+                    key={session.email}
+                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ring-1 ${
+                      isOnline ? "bg-emerald-50 text-emerald-700 ring-emerald-100" : "bg-slate-50 text-slate-600 ring-slate-200"
+                    }`}
+                  >
+                    {session.email}
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        isOnline ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.2)]" : "bg-slate-400"
+                      }`}
+                    />
+                    <span className="text-[10px] font-medium text-slate-500">
+                      Last active {lastSeen}
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="mt-3 text-xs font-semibold text-slate-500">No staff sessions yet.</p>
+          )}
         </div>
 
         <form
