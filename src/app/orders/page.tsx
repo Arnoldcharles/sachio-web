@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { collection, deleteDoc, doc, getDocs, orderBy, query } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import Link from "next/link";
-import { StatusPill } from "../page";
+import { StatusPill, OrderStatus } from "../page";
 
 type OrderRow = {
   id: string;
@@ -12,7 +12,7 @@ type OrderRow = {
   customer: string;
   type: string;
   price: number | null;
-  status: string;
+   status: OrderStatus | string;
   paymentStatus?: string;
   createdAt?: Date;
 };
@@ -126,7 +126,7 @@ export default function OrdersPage() {
                         : `ƒ,İ${Number(order.price ?? 0).toLocaleString()}`}
                     </td>
                     <td className="px-4 py-3">
-                      <StatusPill status={order.status as Order["status"]} />
+                      <StatusPill status={order.status as OrderStatus} />
                     </td>
                     <td className="px-4 py-3 text-xs font-semibold">
                       {order.type !== "Rent" ? (
