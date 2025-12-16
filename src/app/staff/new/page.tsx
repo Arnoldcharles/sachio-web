@@ -120,6 +120,7 @@ export default function NewStaffPage() {
                   session.lastActive instanceof Date
                     ? session.lastActive.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
                     : "—";
+                const statusLabel = isOnline ? "Online" : `Last active ${lastSeen}`;
                 return (
                   <span
                     key={session.email}
@@ -133,9 +134,7 @@ export default function NewStaffPage() {
                         isOnline ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.2)]" : "bg-slate-400"
                       }`}
                     />
-                    <span className="text-[10px] font-medium text-slate-500">
-                      Last active {lastSeen}
-                    </span>
+                    <span className="text-[10px] font-medium text-slate-500">{statusLabel}</span>
                   </span>
                 );
               })}
