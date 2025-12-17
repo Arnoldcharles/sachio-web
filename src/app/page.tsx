@@ -1,15 +1,36 @@
-'use client';
+"use client";
 
 import { useEffect, useState } from "react";
-import { addDoc, collection, doc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
 import Image from "next/image";
 
-type Stat = { label: string; value: string; delta?: string; tone?: "green" | "orange" | "red" };
-type Announcement = { id: string; title: string; message: string; createdAt?: Date | null };
+type Stat = {
+  label: string;
+  value: string;
+  delta?: string;
+  tone?: "green" | "orange" | "red";
+};
+type Announcement = {
+  id: string;
+  title: string;
+  message: string;
+  createdAt?: Date | null;
+};
 export type OrderStatus =
   | "Processing"
   | "Dispatched"
@@ -18,10 +39,37 @@ export type OrderStatus =
   | "Cancelled_by_admin"
   | "In transit"
   | "Completed";
-type RawOrder = { id: string; customer: string; type: "Buy" | "Rent"; amount: number; status: OrderStatus; eta: string; createdAt: Date | null };
-type Order = { id: string; customer: string; type: "Buy" | "Rent"; total: string; status: OrderStatus; eta: string };
-type Product = { id: string; title: string; price: string; category: string; inStock: boolean };
-type Category = { id: string; name: string; segment?: string; count?: number; imageUrl?: string };
+type RawOrder = {
+  id: string;
+  customer: string;
+  type: "Buy" | "Rent";
+  amount: number;
+  status: OrderStatus;
+  eta: string;
+  createdAt: Date | null;
+};
+type Order = {
+  id: string;
+  customer: string;
+  type: "Buy" | "Rent";
+  total: string;
+  status: OrderStatus;
+  eta: string;
+};
+type Product = {
+  id: string;
+  title: string;
+  price: string;
+  category: string;
+  inStock: boolean;
+};
+type Category = {
+  id: string;
+  name: string;
+  segment?: string;
+  count?: number;
+  imageUrl?: string;
+};
 type Lane = { label: string; value: number };
 type Alert = { title: string; tone: "red" | "amber" | "emerald" };
 type TrendPoint = { label: string; value: number };
@@ -53,21 +101,77 @@ const fallbackData: DashboardData = {
     { id: "cat-longterm", name: "Long-term Rentals" },
   ],
   stats: [
-    { label: "Revenue (MTD)", value: "₦8,240,000", delta: "+12.4%", tone: "green" },
+    {
+      label: "Revenue (MTD)",
+      value: "NGN 8,240,000",
+      delta: "+12.4%",
+      tone: "green",
+    },
     { label: "Orders", value: "182", delta: "+6.1%" },
-    { label: "Rentals in progress", value: "48", delta: "-3.2%", tone: "orange" },
+    {
+      label: "Rentals in progress",
+      value: "48",
+      delta: "-3.2%",
+      tone: "orange",
+    },
     { label: "On-time delivery", value: "96%", delta: "+1.5%", tone: "green" },
   ],
   orders: [
-    { id: "ORD-1024", customer: "Halima O.", type: "Rent", total: "₦420,000", status: "Processing", eta: "Today, 4:00PM" },
-    { id: "ORD-1023", customer: "Bright Events", type: "Buy", total: "₦1,200,000", status: "Dispatched", eta: "Today, 6:30PM" },
-    { id: "ORD-1022", customer: "MegaBuild", type: "Rent", total: "₦680,000", status: "Delivered", eta: "Yesterday" },
-    { id: "ORD-1021", customer: "Chika I.", type: "Rent", total: "₦220,000", status: "Cancelled", eta: "-" },
+    {
+      id: "ORD-1024",
+      customer: "Halima O.",
+      type: "Rent",
+      total: "NGN 420,000",
+      status: "Processing",
+      eta: "Today, 4:00PM",
+    },
+    {
+      id: "ORD-1023",
+      customer: "Bright Events",
+      type: "Buy",
+      total: "NGN 1,200,000",
+      status: "Dispatched",
+      eta: "Today, 6:30PM",
+    },
+    {
+      id: "ORD-1022",
+      customer: "MegaBuild",
+      type: "Rent",
+      total: "NGN 680,000",
+      status: "Delivered",
+      eta: "Yesterday",
+    },
+    {
+      id: "ORD-1021",
+      customer: "Chika I.",
+      type: "Rent",
+      total: "NGN 220,000",
+      status: "Cancelled",
+      eta: "-",
+    },
   ],
   products: [
-    { id: "PRD-1001", title: "VIP Mobile Toilet", price: "₦600,000", category: "VIP", inStock: true },
-    { id: "PRD-1002", title: "Standard Mobile Toilet", price: "₦320,000", category: "Standard", inStock: true },
-    { id: "PRD-1003", title: "Luxury Restroom Trailer", price: "₦1,800,000", category: "Luxury", inStock: false },
+    {
+      id: "PRD-1001",
+      title: "VIP Mobile Toilet",
+      price: "₦600,000",
+      category: "VIP",
+      inStock: true,
+    },
+    {
+      id: "PRD-1002",
+      title: "Standard Mobile Toilet",
+      price: "₦320,000",
+      category: "Standard",
+      inStock: true,
+    },
+    {
+      id: "PRD-1003",
+      title: "Luxury Restroom Trailer",
+      price: "₦1,800,000",
+      category: "Luxury",
+      inStock: false,
+    },
   ],
   lanes: [
     { label: "Fulfillment", value: 82 },
@@ -100,13 +204,21 @@ export default function Home() {
   const [trendDays, setTrendDays] = useState<number>(7);
   const [role, setRole] = useState<"superadmin" | "staff" | null>(null);
   const [email, setEmail] = useState<string | null>(null);
-  const [revenueTotals, setRevenueTotals] = useState<RevenueTotals>({ daily: 0, monthly: 0, yearly: 0 });
+  const [revenueTotals, setRevenueTotals] = useState<RevenueTotals>({
+    daily: 0,
+    monthly: 0,
+    yearly: 0,
+  });
   const [showRevenueDetails, setShowRevenueDetails] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const storedEmail = localStorage.getItem("sachio_admin_email");
-    const storedRole = (localStorage.getItem("sachio_admin_role") as "superadmin" | "staff" | null) || null;
+    const storedRole =
+      (localStorage.getItem("sachio_admin_role") as
+        | "superadmin"
+        | "staff"
+        | null) || null;
     if (!storedEmail || !storedRole) {
       router.push("/login");
       return;
@@ -115,14 +227,23 @@ export default function Home() {
     setEmail(storedEmail);
   }, [router]);
 
-  const touchStaffSession = async (status: "online" | "offline", emailValue?: string | null, roleValue?: string | null) => {
+  const touchStaffSession = async (
+    status: "online" | "offline",
+    emailValue?: string | null,
+    roleValue?: string | null
+  ) => {
     const resolvedEmail = emailValue ?? email;
     const resolvedRole = roleValue ?? role;
     if (!resolvedEmail || resolvedRole !== "staff") return;
     try {
       await setDoc(
         doc(db, "staffSessions", resolvedEmail),
-        { email: resolvedEmail, role: resolvedRole, status, lastActive: serverTimestamp() },
+        {
+          email: resolvedEmail,
+          role: resolvedRole,
+          status,
+          lastActive: serverTimestamp(),
+        },
         { merge: true }
       );
     } catch (err) {
@@ -138,7 +259,14 @@ export default function Home() {
   const handleExport = () => {
     if (typeof window === "undefined") return;
 
-    const statRows = data.stats.map((s) => `<tr><td>${s.label}</td><td>${s.value}</td><td>${s.delta ?? ""}</td></tr>`).join("");
+    const statRows = data.stats
+      .map(
+        (s) =>
+          `<tr><td>${s.label}</td><td>${s.value}</td><td>${
+            s.delta ?? ""
+          }</td></tr>`
+      )
+      .join("");
     const orderRows = data.orders
       .map(
         (o) =>
@@ -146,7 +274,12 @@ export default function Home() {
       )
       .join("");
     const productRows = data.products
-      .map((p) => `<tr><td>${p.title}</td><td>${p.category}</td><td>${p.price}</td><td>${p.inStock ? "Yes" : "No"}</td></tr>`)
+      .map(
+        (p) =>
+          `<tr><td>${p.title}</td><td>${p.category}</td><td>${
+            p.price
+          }</td><td>${p.inStock ? "Yes" : "No"}</td></tr>`
+      )
       .join("");
 
     const html = `
@@ -211,15 +344,25 @@ export default function Home() {
     pdfLines.push(`Generated: ${new Date().toLocaleString()}`);
     pdfLines.push("");
     pdfLines.push("-- Stats --");
-    data.stats.forEach((s) => pdfLines.push(`• ${s.label}: ${s.value}${s.delta ? ` (${s.delta})` : ""}`));
+    data.stats.forEach((s) =>
+      pdfLines.push(`• ${s.label}: ${s.value}${s.delta ? ` (${s.delta})` : ""}`)
+    );
     pdfLines.push("");
     pdfLines.push(`-- Orders (${data.orders.length}) --`);
     data.orders.forEach((o) =>
-      pdfLines.push(`• ${o.id} | ${o.customer} | ${o.type} | ${o.total} | ${o.status} | ${o.eta}`)
+      pdfLines.push(
+        `• ${o.id} | ${o.customer} | ${o.type} | ${o.total} | ${o.status} | ${o.eta}`
+      )
     );
     pdfLines.push("");
     pdfLines.push(`-- Products (${data.products.length}) --`);
-    data.products.forEach((p) => pdfLines.push(`• ${p.title} (${p.category}) ${p.price} ${p.inStock ? "[In stock]" : "[Out]"}`));
+    data.products.forEach((p) =>
+      pdfLines.push(
+        `• ${p.title} (${p.category}) ${p.price} ${
+          p.inStock ? "[In stock]" : "[Out]"
+        }`
+      )
+    );
 
     const pdfContent = buildSimplePdf(pdfLines);
     const pdfBlob = new Blob([pdfContent], { type: "application/pdf" });
@@ -255,11 +398,19 @@ export default function Home() {
     let cancelled = false;
     const checkBlocked = async () => {
       try {
-        const snap = await getDocs(query(collection(db, "staffAccounts"), where("email", "==", email), limit(1)));
+        const snap = await getDocs(
+          query(
+            collection(db, "staffAccounts"),
+            where("email", "==", email),
+            limit(1)
+          )
+        );
         const docSnap = snap.docs[0];
         const data = docSnap?.data() as any;
         if (!cancelled && data?.blocked) {
-          alert("Your staff access has been blocked. Please contact an administrator.");
+          alert(
+            "Your staff access has been blocked. Please contact an administrator."
+          );
           handleLogout();
         }
       } catch (err) {
@@ -289,7 +440,11 @@ export default function Home() {
           } as Stat;
         });
 
-        const ordersQuery = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(7));
+        const ordersQuery = query(
+          collection(db, "orders"),
+          orderBy("createdAt", "desc"),
+          limit(7)
+        );
         const ordersSnap = await getDocs(ordersQuery);
         const rawOrders: RawOrder[] = ordersSnap.docs.map((doc) => {
           const d = doc.data() as any;
@@ -312,7 +467,11 @@ export default function Home() {
           total: `₦${amount.toLocaleString()}`,
         }));
 
-        const productsQuery = query(collection(db, "products"), orderBy("createdAt", "desc"), limit(5));
+        const productsQuery = query(
+          collection(db, "products"),
+          orderBy("createdAt", "desc"),
+          limit(5)
+        );
         const productsSnap = await getDocs(productsQuery);
         const products = productsSnap.docs.map((doc) => {
           const d = doc.data() as any;
@@ -325,7 +484,11 @@ export default function Home() {
           };
         });
 
-        const categoriesQuery = query(collection(db, "categories"), orderBy("count", "desc"), limit(6));
+        const categoriesQuery = query(
+          collection(db, "categories"),
+          orderBy("count", "desc"),
+          limit(6)
+        );
         const categoriesSnap = await getDocs(categoriesQuery);
         const categories = categoriesSnap.docs.map((doc) => {
           const d = doc.data() as any;
@@ -347,29 +510,35 @@ export default function Home() {
         const alertsSnap = await getDocs(collection(db, "alerts"));
         const alerts = alertsSnap.docs.map((doc) => {
           const d = doc.data();
-          return { title: d.title ?? "Alert", tone: (d.tone ?? "red") as Alert["tone"] };
+          return {
+            title: d.title ?? "Alert",
+            tone: (d.tone ?? "red") as Alert["tone"],
+          };
         });
 
-        const derivedStats =
-          stats.length === 0
-            ? buildStatsFromOrders(rawOrders)
-            : stats;
+        const derivedStats = stats.length
+          ? stats
+          : buildStatsFromOrders(rawOrders);
 
         const derivedAlerts =
-          alerts.length === 0 ? buildAlertsFromData(rawOrders, products) : alerts;
+          alerts.length === 0
+            ? buildAlertsFromData(rawOrders, products)
+            : alerts;
 
         const revenueTrend = buildRevenueTrend(rawOrders, trendDays);
         const totals = buildRevenueTotals(rawOrders);
 
         if (!mounted) return;
         setData({
-          stats: derivedStats.length ? derivedStats : fallbackData.stats,
+          stats: derivedStats,
           orders: orders.length ? orders : fallbackData.orders,
           products: products.length ? products : fallbackData.products,
           categories: categories.length ? categories : fallbackData.categories,
           lanes: lanes.length ? lanes : fallbackData.lanes,
           alerts: derivedAlerts.length ? derivedAlerts : fallbackData.alerts,
-          revenueTrend: revenueTrend.length ? revenueTrend : fallbackData.revenueTrend,
+          revenueTrend: revenueTrend.length
+            ? revenueTrend
+            : fallbackData.revenueTrend,
         });
         setRevenueTotals(totals);
       } catch (err) {
@@ -389,6 +558,11 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-900">
       <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+        {loading && (
+          <div className="rounded-2xl border border-dashed border-emerald-300 bg-white/80 p-4 text-sm font-semibold text-emerald-700 shadow-sm ring-1 ring-emerald-200">
+            Syncing live metrics from Firebase…
+          </div>
+        )}
         <motion.header
           className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between"
           initial={{ opacity: 0, y: -15 }}
@@ -397,17 +571,34 @@ export default function Home() {
         >
           <div>
             <div className="flex items-center gap-3">
-              <Image src="/logo (1).png" alt="Sachio logo" width={42} height={42} className="rounded-lg" />
+              <Image
+                src="/logo (1).png"
+                alt="Sachio logo"
+                width={42}
+                height={42}
+                className="rounded-lg"
+              />
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Sachio Mobile Toilets</p>
-                <h1 className="text-2xl font-black text-slate-900">Operations Dashboard</h1>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                  Sachio Mobile Toilets
+                </p>
+                <h1 className="text-2xl font-black text-slate-900">
+                  Operations Dashboard
+                </h1>
               </div>
             </div>
-            <p className="text-sm text-slate-500">Track revenue, orders, rentals, and delivery performance.</p>
+            <p className="text-sm text-slate-500">
+              Track revenue, orders, rentals, and delivery performance.
+            </p>
             {role ? (
               <p className="mt-1 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                Logged in as <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold">{role}</span>
-                {email ? <span className="text-[11px] text-slate-500">{email}</span> : null}
+                Logged in as{" "}
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold">
+                  {role}
+                </span>
+                {email ? (
+                  <span className="text-[11px] text-slate-500">{email}</span>
+                ) : null}
               </p>
             ) : null}
           </div>
@@ -464,17 +655,22 @@ export default function Home() {
               {announcing ? "Posting..." : "New Announcement"}
             </motion.button>
           </div>
-        </motion.header> 
+        </motion.header>
 
         {role === "staff" ? null : (
           <section className="grid gap-4 xs:grid-cols-2 lg:grid-cols-4">
             {data.stats.map((stat, idx) => (
               <motion.div
                 key={stat.label}
-                className={`rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 ${stat.label === "Revenue (MTD)" ? "cursor-pointer" : ""}`}
+                className={`rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 ${
+                  stat.label === "Revenue (MTD)" ? "cursor-pointer" : ""
+                }`}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                whileHover={{ y: -2, boxShadow: "0px 8px 30px rgba(15, 23, 42, 0.08)" }}
+                whileHover={{
+                  y: -2,
+                  boxShadow: "0px 8px 30px rgba(15, 23, 42, 0.08)",
+                }}
                 transition={{ delay: idx * 0.08 }}
                 onClick={() => {
                   if (stat.label === "Revenue (MTD)") {
@@ -482,12 +678,20 @@ export default function Home() {
                   }
                 }}
               >
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
-                <p className="mt-2 text-xl font-black text-slate-900">{stat.value}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {stat.label}
+                </p>
+                <p className="mt-2 text-xl font-black text-slate-900">
+                  {stat.value}
+                </p>
                 {stat.delta ? (
                   <p
                     className={`mt-1 text-xs font-bold ${
-                      stat.tone === "red" ? "text-red-600" : stat.tone === "orange" ? "text-amber-600" : "text-emerald-600"
+                      stat.tone === "red"
+                        ? "text-red-600"
+                        : stat.tone === "orange"
+                        ? "text-amber-600"
+                        : "text-emerald-600"
                     }`}
                   >
                     {stat.delta} vs last week
@@ -504,7 +708,10 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            whileHover={{ y: -2, boxShadow: "0px 10px 35px rgba(15,23,42,0.1)" }}
+            whileHover={{
+              y: -2,
+              boxShadow: "0px 10px 35px rgba(15,23,42,0.1)",
+            }}
             transition={{ duration: 0.4 }}
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -537,18 +744,30 @@ export default function Home() {
                       animate={{ opacity: 1, y: 0 }}
                       whileHover={{ scale: 1.005 }}
                       transition={{ duration: 0.2 }}
-                      onClick={() => (window.location.href = `/orders/${order.id}`)}
+                      onClick={() =>
+                        (window.location.href = `/orders/${order.id}`)
+                      }
                     >
-                      <td className="px-4 py-3 font-semibold text-slate-900">{order.id}</td>
-                      <td className="px-4 py-3 text-slate-700">{order.customer}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">{order.type}</span>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {order.id}
                       </td>
-                      <td className="px-4 py-3 font-bold text-slate-900">{order.total}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {order.customer}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+                          {order.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-bold text-slate-900">
+                        {order.total}
+                      </td>
                       <td className="px-4 py-3">
                         <StatusPill status={order.status} />
                       </td>
-                      <td className="px-4 py-3 text-right text-slate-600">{order.eta}</td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {order.eta}
+                      </td>
                     </motion.tr>
                   ))}
                 </tbody>
@@ -563,12 +782,18 @@ export default function Home() {
                     animate={{ opacity: 1, y: 0 }}
                     whileHover={{ scale: 1.01 }}
                     transition={{ duration: 0.2 }}
-                    onClick={() => (window.location.href = `/orders/${order.id}`)}
+                    onClick={() =>
+                      (window.location.href = `/orders/${order.id}`)
+                    }
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{order.id}</p>
-                        <p className="text-sm font-bold text-slate-900">{order.customer}</p>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          {order.id}
+                        </p>
+                        <p className="text-sm font-bold text-slate-900">
+                          {order.customer}
+                        </p>
                       </div>
                       <StatusPill status={order.status} />
                     </div>
@@ -590,7 +815,10 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            whileHover={{ y: -3, boxShadow: "0px 10px 35px rgba(15,23,42,0.12)" }}
+            whileHover={{
+              y: -3,
+              boxShadow: "0px 10px 35px rgba(15,23,42,0.12)",
+            }}
             transition={{ duration: 0.4, delay: 0.1 }}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -622,7 +850,9 @@ export default function Home() {
                     <tr
                       key={category.id}
                       className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
-                      onClick={() => (window.location.href = `/categories/${category.id}`)}
+                      onClick={() =>
+                        (window.location.href = `/categories/${category.id}`)
+                      }
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
@@ -630,7 +860,9 @@ export default function Home() {
                             {category.name.slice(0, 2).toUpperCase()}
                           </div>
                           <div>
-                            <p className="font-semibold text-slate-900">{category.name}</p>
+                            <p className="font-semibold text-slate-900">
+                              {category.name}
+                            </p>
                           </div>
                         </div>
                       </td>
@@ -644,13 +876,17 @@ export default function Home() {
                   <button
                     key={category.id}
                     className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-100"
-                    onClick={() => (window.location.href = `/categories/${category.id}`)}
+                    onClick={() =>
+                      (window.location.href = `/categories/${category.id}`)
+                    }
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700">
                         {category.name.slice(0, 2).toUpperCase()}
                       </div>
-                      <p className="font-semibold text-slate-900">{category.name}</p>
+                      <p className="font-semibold text-slate-900">
+                        {category.name}
+                      </p>
                     </div>
                   </button>
                 ))}
@@ -661,88 +897,113 @@ export default function Home() {
 
         <section className="grid gap-4 lg:grid-cols-3">
           {role === "staff" ? null : (
-          <motion.div
-            className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            whileHover={{ y: -2, boxShadow: "0px 10px 35px rgba(15,23,42,0.1)" }}
-            transition={{ duration: 0.4 }}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-bold text-slate-900">Products</h2>
-              <div className="flex items-center gap-2">
-                <button
-                  className="text-xs font-semibold text-emerald-700 hover:underline"
-                  onClick={() => (window.location.href = "/products")}
-                >
-                  View all
-                </button>
-                <button
-                  className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
-                  onClick={() => (window.location.href = "/products/new")}
-                >
-                  Add product
-                </button>
+            <motion.div
+              className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2"
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              whileHover={{
+                y: -2,
+                boxShadow: "0px 10px 35px rgba(15,23,42,0.1)",
+              }}
+              transition={{ duration: 0.4 }}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-bold text-slate-900">Products</h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="text-xs font-semibold text-emerald-700 hover:underline"
+                    onClick={() => (window.location.href = "/products")}
+                  >
+                    View all
+                  </button>
+                  <button
+                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                    onClick={() => (window.location.href = "/products/new")}
+                  >
+                    Add product
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
+              <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
                 <table className="hidden w-full min-w-[500px] text-sm sm:table">
-                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Product</th>
-                    <th className="px-4 py-3">Category</th>
-                    <th className="px-4 py-3">Price</th>
-                    <th className="px-4 py-3 text-center">Stock</th>
-                  </tr>
-                </thead>
-                <tbody>
+                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Product</th>
+                      <th className="px-4 py-3">Category</th>
+                      <th className="px-4 py-3">Price</th>
+                      <th className="px-4 py-3 text-center">Stock</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.products.map((product) => (
+                      <tr
+                        key={product.id}
+                        className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 transition"
+                        onClick={() =>
+                          (window.location.href = `/products/${product.id}`)
+                        }
+                      >
+                        <td className="px-4 py-3 font-semibold text-slate-900">
+                          {product.title}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {product.category}
+                        </td>
+                        <td className="px-4 py-3 font-bold text-slate-900">
+                          {product.price}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-bold ${
+                              product.inStock
+                                ? "bg-emerald-50 text-emerald-700"
+                                : "bg-red-50 text-red-700"
+                            }`}
+                          >
+                            {product.inStock ? "In stock" : "Out"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div className="space-y-3 p-3 sm:hidden">
                   {data.products.map((product) => (
-                    <tr
+                    <motion.button
                       key={product.id}
-                      className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 transition"
-                      onClick={() => (window.location.href = `/products/${product.id}`)}
+                      className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-100"
+                      whileHover={{ scale: 1.01 }}
+                      onClick={() =>
+                        (window.location.href = `/products/${product.id}`)
+                      }
                     >
-                      <td className="px-4 py-3 font-semibold text-slate-900">{product.title}</td>
-                      <td className="px-4 py-3 text-slate-700">{product.category}</td>
-                      <td className="px-4 py-3 font-bold text-slate-900">{product.price}</td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`rounded-full px-3 py-1 text-xs font-bold ${product.inStock ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-semibold text-slate-900">
+                          {product.title}
+                        </p>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                          {product.category}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs font-semibold text-slate-600">
+                        <span className="text-slate-900">{product.price}</span>
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                            product.inStock
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-red-50 text-red-700"
+                          }`}
+                        >
                           {product.inStock ? "In stock" : "Out"}
                         </span>
-                      </td>
-                    </tr>
+                      </div>
+                    </motion.button>
                   ))}
-                </tbody>
-              </table>
-
-              <div className="space-y-3 p-3 sm:hidden">
-                {data.products.map((product) => (
-                  <motion.button
-                    key={product.id}
-                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-100"
-                    whileHover={{ scale: 1.01 }}
-                    onClick={() => (window.location.href = `/products/${product.id}`)}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-semibold text-slate-900">{product.title}</p>
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">
-                        {product.category}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-xs font-semibold text-slate-600">
-                      <span className="text-slate-900">{product.price}</span>
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${product.inStock ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}
-                      >
-                        {product.inStock ? "In stock" : "Out"}
-                      </span>
-                    </div>
-                  </motion.button>
-                ))}
+                </div>
               </div>
-            </div>
-          </motion.div>
+            </motion.div>
           )}
 
           <motion.div
@@ -750,12 +1011,19 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            whileHover={{ y: -2, boxShadow: "0px 10px 35px rgba(15,23,42,0.1)" }}
+            whileHover={{
+              y: -2,
+              boxShadow: "0px 10px 35px rgba(15,23,42,0.1)",
+            }}
             transition={{ duration: 0.4, delay: 0.1 }}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-bold text-slate-900">Operational Health</h2>
-              <span className="text-xs font-semibold text-emerald-700">Live</span>
+              <h2 className="text-lg font-bold text-slate-900">
+                Operational Health
+              </h2>
+              <span className="text-xs font-semibold text-emerald-700">
+                Live
+              </span>
             </div>
             <div className="mt-4 space-y-4">
               {data.lanes.map((lane) => (
@@ -781,52 +1049,64 @@ export default function Home() {
         <section className="grid gap-4 lg:grid-cols-3">
           {role === "staff" ? null : (
             <motion.div
-            className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            whileHover={{ y: -2, boxShadow: "0px 10px 35px rgba(15,23,42,0.1)" }}
-            transition={{ duration: 0.4 }}
-          >
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <h2 className="text-lg font-bold text-slate-900">Revenue Trend</h2>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-500">Range</span>
-                <select
-                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
-                  value={trendDays}
-                  onChange={(e) => setTrendDays(Number(e.target.value))}
-                >
-                  {trendOptions.map((opt) => (
-                    <option key={opt.days} value={opt.days}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+              className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2"
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              whileHover={{
+                y: -2,
+                boxShadow: "0px 10px 35px rgba(15,23,42,0.1)",
+              }}
+              transition={{ duration: 0.4 }}
+            >
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h2 className="text-lg font-bold text-slate-900">
+                  Revenue Trend
+                </h2>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-500">
+                    Range
+                  </span>
+                  <select
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+                    value={trendDays}
+                    onChange={(e) => setTrendDays(Number(e.target.value))}
+                  >
+                    {trendOptions.map((opt) => (
+                      <option key={opt.days} value={opt.days}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-4 rounded-xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-3 lg:grid-cols-7">
-              {(() => {
-                const maxValue = Math.max(...data.revenueTrend.map((p) => p.value), 1);
-                return data.revenueTrend.map((point, i) => {
-                  const height = Math.round((point.value / maxValue) * 100);
-                  return (
-                    <div key={i} className="flex flex-col items-center gap-1">
-                      <div className="flex h-32 w-full items-end rounded-lg bg-slate-200 overflow-hidden">
-                        <motion.div
-                          className="w-full rounded-lg bg-gradient-to-t from-emerald-500 to-teal-500"
-                          initial={{ height: "0%" }}
-                          animate={{ height: `${height}%` }}
-                          transition={{ delay: i * 0.05, type: "spring" }}
-                          title={`₦${point.value.toLocaleString()}`}
-                        />
-                      </div>
-                      <span className="text-[10px] font-semibold text-slate-500">{point.label}</span>
-                    </div>
+              <div className="mt-4 grid grid-cols-2 gap-4 rounded-xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-3 lg:grid-cols-7">
+                {(() => {
+                  const maxValue = Math.max(
+                    ...data.revenueTrend.map((p) => p.value),
+                    1
                   );
-                });
-              })()}
-            </div>
+                  return data.revenueTrend.map((point, i) => {
+                    const height = Math.round((point.value / maxValue) * 100);
+                    return (
+                      <div key={i} className="flex flex-col items-center gap-1">
+                        <div className="flex h-32 w-full items-end rounded-lg bg-slate-200 overflow-hidden">
+                          <motion.div
+                            className="w-full rounded-lg bg-gradient-to-t from-emerald-500 to-teal-500"
+                            initial={{ height: "0%" }}
+                            animate={{ height: `${height}%` }}
+                            transition={{ delay: i * 0.05, type: "spring" }}
+                            title={`₦${point.value.toLocaleString()}`}
+                          />
+                        </div>
+                        <span className="text-[10px] font-semibold text-slate-500">
+                          {point.label}
+                        </span>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
             </motion.div>
           )}
           <motion.div
@@ -838,7 +1118,9 @@ export default function Home() {
           >
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h2 className="text-lg font-bold text-slate-900">Alerts</h2>
-              <span className="text-xs font-semibold text-red-600">{data.alerts.length}</span>
+              <span className="text-xs font-semibold text-red-600">
+                {data.alerts.length}
+              </span>
             </div>
             <div className="mt-3 space-y-3 text-sm">
               {data.alerts.map((alert, idx) => (
@@ -848,11 +1130,6 @@ export default function Home() {
           </motion.div>
         </section>
 
-        {loading && (
-          <div className="rounded-2xl border border-dashed border-emerald-300 bg-white/80 p-4 text-sm text-emerald-700">
-            Syncing live metrics from Firebase…
-          </div>
-        )}
         {showRevenueDetails ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <motion.div
@@ -863,8 +1140,12 @@ export default function Home() {
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Revenue</p>
-                  <h3 className="text-lg font-bold text-slate-900">Completed orders only</h3>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    Revenue
+                  </p>
+                  <h3 className="text-lg font-bold text-slate-900">
+                    Completed orders only
+                  </h3>
                 </div>
                 <button
                   className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
@@ -875,20 +1156,33 @@ export default function Home() {
               </div>
               <div className="mt-4 space-y-3">
                 <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-                  <span className="text-sm font-semibold text-slate-700">Today</span>
-                  <span className="text-base font-black text-slate-900">NGN{revenueTotals.daily.toLocaleString()}</span>
+                  <span className="text-sm font-semibold text-slate-700">
+                    Today
+                  </span>
+                  <span className="text-base font-black text-slate-900">
+                    NGN {revenueTotals.daily.toLocaleString()}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-                  <span className="text-sm font-semibold text-slate-700">This Month</span>
-                  <span className="text-base font-black text-slate-900">NGN{revenueTotals.monthly.toLocaleString()}</span>
+                  <span className="text-sm font-semibold text-slate-700">
+                    This Month
+                  </span>
+                  <span className="text-base font-black text-slate-900">
+                    NGN {revenueTotals.monthly.toLocaleString()}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-                  <span className="text-sm font-semibold text-slate-700">This Year</span>
-                  <span className="text-base font-black text-slate-900">NGN{revenueTotals.yearly.toLocaleString()}</span>
+                  <span className="text-sm font-semibold text-slate-700">
+                    This Year
+                  </span>
+                  <span className="text-base font-black text-slate-900">
+                    NGN {revenueTotals.yearly.toLocaleString()}
+                  </span>
                 </div>
               </div>
               <p className="mt-3 text-xs text-slate-500">
-                Totals are based on orders with status <strong>Completed</strong>.
+                Totals are based on orders with status{" "}
+                <strong>Completed</strong>.
               </p>
             </motion.div>
           </div>
@@ -918,11 +1212,19 @@ export function StatusPill({ status }: { status: OrderStatus }) {
   };
   const colors = map[label] || "bg-slate-100 text-slate-700";
   return (
-    <span className={`rounded-full px-3 py-1 text-xs font-bold ${colors}`}>{label}</span>
+    <span className={`rounded-full px-3 py-1 text-xs font-bold ${colors}`}>
+      {label}
+    </span>
   );
 }
 
-function AlertItem({ title, tone }: { title: string; tone: "red" | "amber" | "emerald" }) {
+function AlertItem({
+  title,
+  tone,
+}: {
+  title: string;
+  tone: "red" | "amber" | "emerald";
+}) {
   const colors =
     tone === "red"
       ? "bg-red-50 text-red-700 ring-red-100"
@@ -938,7 +1240,10 @@ function AlertItem({ title, tone }: { title: string; tone: "red" | "amber" | "em
       onClick={() => {
         if (title.toLowerCase().includes("product")) {
           window.location.href = "/products";
-        } else if (title.toLowerCase().includes("order") || title.toLowerCase().includes("delivery")) {
+        } else if (
+          title.toLowerCase().includes("order") ||
+          title.toLowerCase().includes("delivery")
+        ) {
           window.location.href = "/orders";
         }
       }}
@@ -958,7 +1263,7 @@ function normalizeStatus(value: unknown): OrderStatus {
     cancelled: "Cancelled",
     "cancelled by admin": "Cancelled_by_admin",
     "cancelled-by-admin": "Cancelled_by_admin",
-    "cancelled_by_admin": "Cancelled_by_admin",
+    cancelled_by_admin: "Cancelled_by_admin",
     "in transit": "In transit",
     "in-transit": "In transit",
     completed: "Completed",
@@ -966,44 +1271,38 @@ function normalizeStatus(value: unknown): OrderStatus {
   return map[normalized] ?? "Processing";
 }
 
-function buildStatsFromOrders(orders: RawOrder[]) {
-  if (!orders.length) return [];
-  const revenue = orders.reduce((sum, order) => sum + order.amount, 0);
-  const rentals = orders.filter((o) => o.type === "Rent" && !o.status.toLowerCase().includes("cancelled")).length;
-  const delivered = orders.filter((o) => o.status === "Delivered" || o.status === "Completed").length;
-  const onTime = orders.length ? Math.round((delivered / orders.length) * 100) : 0;
-  return [
-    { label: "Revenue (MTD)", value: `₦${revenue.toLocaleString()}`, delta: "", tone: "green" as const },
-    { label: "Orders", value: `${orders.length}`, delta: "" },
-    { label: "Rentals in progress", value: `${rentals}`, delta: "" },
-    { label: "Delivery success", value: `${onTime}%`, delta: "", tone: "green" as const },
-  ];
-}
-
 function buildAlertsFromData(orders: RawOrder[], products: Product[]) {
   const alerts: Alert[] = [];
   const lowStock = products.filter((p) => !p.inStock);
   if (lowStock.length) {
     alerts.push({
-      title: `${lowStock.length} product${lowStock.length > 1 ? "s" : ""} out of stock`,
+      title: `${lowStock.length} product${
+        lowStock.length > 1 ? "s" : ""
+      } out of stock`,
       tone: "red",
     });
   }
-  const backlog = orders.filter((o) => o.status.toLowerCase().includes("processing")).length;
+  const backlog = orders.filter((o) =>
+    o.status.toLowerCase().includes("processing")
+  ).length;
   if (backlog > 6) {
     alerts.push({
       title: `${backlog} orders waiting on fulfillment`,
       tone: "amber",
     });
   }
-  const cancelled = orders.filter((o) => o.status.toLowerCase().includes("cancel")).length;
+  const cancelled = orders.filter((o) =>
+    o.status.toLowerCase().includes("cancel")
+  ).length;
   if (orders.length && cancelled / orders.length > 0.2) {
     alerts.push({
       title: "Cancellation rate above 20%",
       tone: "red",
     });
   }
-  const inTransit = orders.filter((o) => o.status.toLowerCase().includes("in transit")).length;
+  const inTransit = orders.filter((o) =>
+    o.status.toLowerCase().includes("in transit")
+  ).length;
   if (inTransit > 0) {
     alerts.push({
       title: `${inTransit} deliveries currently in transit`,
@@ -1041,15 +1340,27 @@ function buildRevenueTrend(orders: RawOrder[], windowDays = 7): TrendPoint[] {
 function buildRevenueTotals(orders: RawOrder[]): RevenueTotals {
   const today = new Date();
   const isSameDay = (d: Date) =>
-    d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
-  const isSameMonth = (d: Date) => d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth();
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  const isSameMonth = (d: Date) =>
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth();
   const isSameYear = (d: Date) => d.getFullYear() === today.getFullYear();
 
-  const completed = orders.filter((o) => o.status === "Completed" && o.createdAt instanceof Date);
+  const completed = orders.filter(
+    (o) => o.status === "Completed" && o.createdAt instanceof Date
+  );
 
-  const daily = completed.filter((o) => o.createdAt && isSameDay(o.createdAt)).reduce((sum, o) => sum + o.amount, 0);
-  const monthly = completed.filter((o) => o.createdAt && isSameMonth(o.createdAt)).reduce((sum, o) => sum + o.amount, 0);
-  const yearly = completed.filter((o) => o.createdAt && isSameYear(o.createdAt)).reduce((sum, o) => sum + o.amount, 0);
+  const daily = completed
+    .filter((o) => o.createdAt && isSameDay(o.createdAt))
+    .reduce((sum, o) => sum + o.amount, 0);
+  const monthly = completed
+    .filter((o) => o.createdAt && isSameMonth(o.createdAt))
+    .reduce((sum, o) => sum + o.amount, 0);
+  const yearly = completed
+    .filter((o) => o.createdAt && isSameYear(o.createdAt))
+    .reduce((sum, o) => sum + o.amount, 0);
 
   return { daily, monthly, yearly };
 }
@@ -1099,8 +1410,12 @@ function buildSimplePdf(lines: string[]) {
   addObject(
     "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj"
   );
-  addObject(`4 0 obj << /Length ${contentStream.length} >> stream\n${contentStream}\nendstream endobj`);
-  addObject("5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj");
+  addObject(
+    `4 0 obj << /Length ${contentStream.length} >> stream\n${contentStream}\nendstream endobj`
+  );
+  addObject(
+    "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj"
+  );
 
   const xrefOffset = pdf.length;
   pdf += "xref\n";
@@ -1109,9 +1424,47 @@ function buildSimplePdf(lines: string[]) {
   offsets.forEach((offset) => {
     pdf += `${offset.toString().padStart(10, "0")} 00000 n \n`;
   });
-  pdf += `trailer << /Size ${offsets.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  pdf += `trailer << /Size ${
+    offsets.length + 1
+  } /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
   return pdf;
 }
 
-
-
+function buildStatsFromOrders(orders: RawOrder[]) {
+  const today = new Date();
+  const isSameMonth = (d: Date) =>
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth();
+  const completed = orders.filter(
+    (o) =>
+      o.status === "Completed" &&
+      o.createdAt instanceof Date &&
+      isSameMonth(o.createdAt)
+  );
+  const revenue = completed.reduce((sum, order) => sum + order.amount, 0);
+  const rentals = orders.filter(
+    (o) => o.type === "Rent" && !o.status.toLowerCase().includes("cancelled")
+  ).length;
+  const delivered = orders.filter(
+    (o) => o.status === "Delivered" || o.status === "Completed"
+  ).length;
+  const onTime = orders.length
+    ? Math.round((delivered / orders.length) * 100)
+    : 0;
+  return [
+    {
+      label: "Revenue (MTD)",
+      value: `NGN ${revenue.toLocaleString()}`,
+      delta: "",
+      tone: "green" as const,
+    },
+    { label: "Orders", value: `${orders.length}`, delta: "" },
+    { label: "Rentals in progress", value: `${rentals}`, delta: "" },
+    {
+      label: "On-time delivery",
+      value: `${onTime}%`,
+      delta: "",
+      tone: "green" as const,
+    },
+  ];
+}
