@@ -34,6 +34,7 @@ type DashboardData = {
   alerts: Alert[];
   revenueTrend: TrendPoint[];
 };
+type RevenueTotals = { daily: number; monthly: number; yearly: number };
 
 const trendOptions = [
   { label: "Last 7 days", days: 7 },
@@ -99,6 +100,8 @@ export default function Home() {
   const [trendDays, setTrendDays] = useState<number>(7);
   const [role, setRole] = useState<"superadmin" | "staff" | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [revenueTotals, setRevenueTotals] = useState<RevenueTotals>({ daily: 0, monthly: 0, yearly: 0 });
+  const [showRevenueDetails, setShowRevenueDetails] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -356,6 +359,7 @@ export default function Home() {
           alerts.length === 0 ? buildAlertsFromData(rawOrders, products) : alerts;
 
         const revenueTrend = buildRevenueTrend(rawOrders, trendDays);
+        const totals = buildRevenueTotals(rawOrders);
 
         if (!mounted) return;
         setData({
@@ -367,6 +371,7 @@ export default function Home() {
           alerts: derivedAlerts.length ? derivedAlerts : fallbackData.alerts,
           revenueTrend: revenueTrend.length ? revenueTrend : fallbackData.revenueTrend,
         });
+        setRevenueTotals(totals);
       } catch (err) {
         console.warn("Dashboard fetch failed", err);
         if (mounted) setError("Realtime data unavailable. Showing snapshot.");
@@ -407,51 +412,75 @@ export default function Home() {
             ) : null}
           </div>
           <div className="flex flex-wrap gap-3">
-            <button
+            <motion.button
               className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+              whileHover={{ scale: 1.03, y: -1 }}
+              whileTap={{ scale: 0.98 }}
               onClick={handleExport}
             >
               Export
-            </button>
+            </motion.button>
+            <motion.button
+              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+              whileHover={{ scale: 1.03, y: -1 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handleLogout}
+            >
+              Logout
+            </motion.button>
             {role === "superadmin" ? (
-              <button
+              <motion.button
                 className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                whileHover={{ scale: 1.03, y: -1 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={() => (window.location.href = "/staff/new")}
               >
                 Manage staff
-              </button>
+              </motion.button>
             ) : null}
-            <button
+            <motion.button
               className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+              whileHover={{ scale: 1.03, y: -1 }}
+              whileTap={{ scale: 0.98 }}
               onClick={() => (window.location.href = "/announcements")}
             >
               Announcements
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+              whileHover={{ scale: 1.03, y: -1 }}
+              whileTap={{ scale: 0.98 }}
               onClick={() => (window.location.href = "/users")}
             >
               Users
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
+              whileHover={{ scale: 1.03, y: -1 }}
+              whileTap={{ scale: 0.98 }}
               onClick={handleAnnouncement}
               disabled={announcing}
             >
               {announcing ? "Posting..." : "New Announcement"}
-            </button>
+            </motion.button>
           </div>
-        </motion.header>
+        </motion.header> 
 
         {role === "staff" ? null : (
           <section className="grid gap-4 xs:grid-cols-2 lg:grid-cols-4">
             {data.stats.map((stat, idx) => (
               <motion.div
                 key={stat.label}
-                className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200"
+                className={`rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 ${stat.label === "Revenue (MTD)" ? "cursor-pointer" : ""}`}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
+                whileHover={{ y: -2, boxShadow: "0px 8px 30px rgba(15, 23, 42, 0.08)" }}
                 transition={{ delay: idx * 0.08 }}
+                onClick={() => {
+                  if (stat.label === "Revenue (MTD)") {
+                    setShowRevenueDetails(true);
+                  }
+                }}
               >
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
                 <p className="mt-2 text-xl font-black text-slate-900">{stat.value}</p>
@@ -475,6 +504,7 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
+            whileHover={{ y: -2, boxShadow: "0px 10px 35px rgba(15,23,42,0.1)" }}
             transition={{ duration: 0.4 }}
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -505,6 +535,7 @@ export default function Home() {
                       className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
+                      whileHover={{ scale: 1.005 }}
                       transition={{ duration: 0.2 }}
                       onClick={() => (window.location.href = `/orders/${order.id}`)}
                     >
@@ -530,6 +561,7 @@ export default function Home() {
                     className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-100"
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
+                    whileHover={{ scale: 1.01 }}
                     transition={{ duration: 0.2 }}
                     onClick={() => (window.location.href = `/orders/${order.id}`)}
                   >
@@ -558,6 +590,7 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
+            whileHover={{ y: -3, boxShadow: "0px 10px 35px rgba(15,23,42,0.12)" }}
             transition={{ duration: 0.4, delay: 0.1 }}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -628,11 +661,12 @@ export default function Home() {
 
         <section className="grid gap-4 lg:grid-cols-3">
           {role === "staff" ? null : (
-            <motion.div
+          <motion.div
             className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
+            whileHover={{ y: -2, boxShadow: "0px 10px 35px rgba(15,23,42,0.1)" }}
             transition={{ duration: 0.4 }}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -653,7 +687,7 @@ export default function Home() {
               </div>
             </div>
             <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="hidden w-full min-w-[500px] text-sm sm:table">
+                <table className="hidden w-full min-w-[500px] text-sm sm:table">
                 <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                   <tr>
                     <th className="px-4 py-3">Product</th>
@@ -666,7 +700,7 @@ export default function Home() {
                   {data.products.map((product) => (
                     <tr
                       key={product.id}
-                      className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
+                      className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 transition"
                       onClick={() => (window.location.href = `/products/${product.id}`)}
                     >
                       <td className="px-4 py-3 font-semibold text-slate-900">{product.title}</td>
@@ -684,9 +718,10 @@ export default function Home() {
 
               <div className="space-y-3 p-3 sm:hidden">
                 {data.products.map((product) => (
-                  <button
+                  <motion.button
                     key={product.id}
                     className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-100"
+                    whileHover={{ scale: 1.01 }}
                     onClick={() => (window.location.href = `/products/${product.id}`)}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -703,11 +738,11 @@ export default function Home() {
                         {product.inStock ? "In stock" : "Out"}
                       </span>
                     </div>
-                  </button>
+                  </motion.button>
                 ))}
               </div>
             </div>
-            </motion.div>
+          </motion.div>
           )}
 
           <motion.div
@@ -715,6 +750,7 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
+            whileHover={{ y: -2, boxShadow: "0px 10px 35px rgba(15,23,42,0.1)" }}
             transition={{ duration: 0.4, delay: 0.1 }}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -749,6 +785,7 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
+            whileHover={{ y: -2, boxShadow: "0px 10px 35px rgba(15,23,42,0.1)" }}
             transition={{ duration: 0.4 }}
           >
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -816,6 +853,46 @@ export default function Home() {
             Syncing live metrics from Firebase…
           </div>
         )}
+        {showRevenueDetails ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <motion.div
+              className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200"
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Revenue</p>
+                  <h3 className="text-lg font-bold text-slate-900">Completed orders only</h3>
+                </div>
+                <button
+                  className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+                  onClick={() => setShowRevenueDetails(false)}
+                >
+                  Close
+                </button>
+              </div>
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+                  <span className="text-sm font-semibold text-slate-700">Today</span>
+                  <span className="text-base font-black text-slate-900">NGN{revenueTotals.daily.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+                  <span className="text-sm font-semibold text-slate-700">This Month</span>
+                  <span className="text-base font-black text-slate-900">NGN{revenueTotals.monthly.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+                  <span className="text-sm font-semibold text-slate-700">This Year</span>
+                  <span className="text-base font-black text-slate-900">NGN{revenueTotals.yearly.toLocaleString()}</span>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-slate-500">
+                Totals are based on orders with status <strong>Completed</strong>.
+              </p>
+            </motion.div>
+          </div>
+        ) : null}
         {error && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             {error}
@@ -961,6 +1038,22 @@ function buildRevenueTrend(orders: RawOrder[], windowDays = 7): TrendPoint[] {
   return Object.values(buckets);
 }
 
+function buildRevenueTotals(orders: RawOrder[]): RevenueTotals {
+  const today = new Date();
+  const isSameDay = (d: Date) =>
+    d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+  const isSameMonth = (d: Date) => d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth();
+  const isSameYear = (d: Date) => d.getFullYear() === today.getFullYear();
+
+  const completed = orders.filter((o) => o.status === "Completed" && o.createdAt instanceof Date);
+
+  const daily = completed.filter((o) => o.createdAt && isSameDay(o.createdAt)).reduce((sum, o) => sum + o.amount, 0);
+  const monthly = completed.filter((o) => o.createdAt && isSameMonth(o.createdAt)).reduce((sum, o) => sum + o.amount, 0);
+  const yearly = completed.filter((o) => o.createdAt && isSameYear(o.createdAt)).reduce((sum, o) => sum + o.amount, 0);
+
+  return { daily, monthly, yearly };
+}
+
 function buildSimplePdf(lines: string[]) {
   // Minimal PDF generator for text content only (Helvetica, single page).
   const sanitize = (text: string) => text.replace(/[^\x20-\x7E]/g, "?");
@@ -1019,3 +1112,6 @@ function buildSimplePdf(lines: string[]) {
   pdf += `trailer << /Size ${offsets.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
   return pdf;
 }
+
+
+

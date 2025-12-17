@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { collection, deleteDoc, doc, getDocs, orderBy, query } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import Link from "next/link";
@@ -21,6 +21,20 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
+
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      const normalizedStatus = String(order.status || "").toLowerCase().replace(/_/g, " ");
+      const statusPass = statusFilter === "all" || normalizedStatus === statusFilter;
+      const created = order.createdAt instanceof Date ? order.createdAt : null;
+      const fromOk = fromDate ? (created ? created >= new Date(fromDate) : false) : true;
+      const toOk = toDate ? (created ? created <= new Date(`${toDate}T23:59:59`) : false) : true;
+      return statusPass && fromOk && toOk;
+    });
+  }, [orders, statusFilter, fromDate, toDate]);
 
   useEffect(() => {
     let mounted = true;
@@ -85,6 +99,52 @@ export default function OrdersPage() {
         </div>
 
         <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-end gap-3 px-4 pt-4">
+            <div className="flex flex-col">
+              <label className="text-xs font-semibold text-slate-600">Status</label>
+              <select
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">All</option>
+                <option value="processing">Processing</option>
+                <option value="dispatched">Dispatched</option>
+                <option value="delivered">Delivered</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+                <option value="cancelled by admin">Cancelled by admin</option>
+              </select>
+            </div>
+            <div className="flex flex-col">
+              <label className="text-xs font-semibold text-slate-600">From</label>
+              <input
+                type="date"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col">
+              <label className="text-xs font-semibold text-slate-600">To</label>
+              <input
+                type="date"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+              />
+            </div>
+            <button
+              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+              onClick={() => {
+                setStatusFilter("all");
+                setFromDate("");
+                setToDate("");
+              }}
+            >
+              Reset
+            </button>
+          </div>
           <table className="w-full min-w-[700px] text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
@@ -105,14 +165,14 @@ export default function OrdersPage() {
                     Loading orders…
                   </td>
                 </tr>
-              ) : orders.length === 0 ? (
+              ) : filteredOrders.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
                     No orders yet.
                   </td>
                 </tr>
               ) : (
-                orders.map((order) => (
+                filteredOrders.map((order) => (
                   <tr key={order.id} className="border-t border-slate-100 hover:bg-slate-50">
                     <td className="px-4 py-3 font-semibold text-slate-900">{order.id}</td>
                     <td className="px-4 py-3 text-slate-700">{order.item}</td>
@@ -166,3 +226,7 @@ export default function OrdersPage() {
     </div>
   );
 }
+
+
+
+
