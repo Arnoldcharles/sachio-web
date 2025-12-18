@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from "react";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDocs, orderBy, query } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import Link from "next/link";
 
@@ -16,6 +16,7 @@ type ProductRow = {
 export default function ProductsPage() {
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -99,9 +100,29 @@ export default function ProductsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Link href={`/products/${product.id}`} className="text-xs font-semibold text-emerald-700 hover:underline">
-                        Edit
-                      </Link>
+                      <div className="flex items-center justify-end gap-3">
+                        <Link href={`/products/${product.id}`} className="text-xs font-semibold text-emerald-700 hover:underline">
+                          Edit
+                        </Link>
+                        <button
+                          onClick={async () => {
+                            if (deletingId || !window.confirm("Delete this product? This cannot be undone.")) return;
+                            setDeletingId(product.id);
+                            try {
+                              await deleteDoc(doc(db, "products", product.id));
+                              setProducts((prev) => prev.filter((p) => p.id !== product.id));
+                            } catch (err) {
+                              alert("Could not delete product. Please try again.");
+                            } finally {
+                              setDeletingId(null);
+                            }
+                          }}
+                          disabled={deletingId === product.id}
+                          className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-60"
+                        >
+                          {deletingId === product.id ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
