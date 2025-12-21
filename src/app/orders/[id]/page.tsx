@@ -150,10 +150,36 @@ export default function OrderDetailPage() {
                       {order.customerPhone || order.phone || "Not provided"}
                     </p>
                   </div>
+                  {order.customerEmail ? (
+                    <div>
+                      <p className="text-sm font-semibold text-slate-600">Email</p>
+                      <p className="text-base font-bold text-slate-900">{order.customerEmail}</p>
+                    </div>
+                  ) : null}
                   <div>
                     <p className="text-sm font-semibold text-slate-600">Status</p>
                     <StatusPill status={(order.status || "processing") as OrderStatus} />
                   </div>
+                  {order.toiletsRequired ? (
+                    <div>
+                      <p className="text-sm font-semibold text-slate-600">Toilets required</p>
+                      <p className="text-base font-bold text-slate-900">{order.toiletsRequired}</p>
+                    </div>
+                  ) : null}
+                  {order.productType ? (
+                    <div>
+                      <p className="text-sm font-semibold text-slate-600">Product type</p>
+                      <p className="text-base font-bold text-slate-900">
+                        {Array.isArray(order.productType) ? order.productType.join(", ") : order.productType}
+                      </p>
+                    </div>
+                  ) : null}
+                  {order.rentalType ? (
+                    <div>
+                      <p className="text-sm font-semibold text-slate-600">Rental type</p>
+                      <p className="text-base font-bold text-slate-900">{order.rentalType}</p>
+                    </div>
+                  ) : null}
                   {order.duration ? (
                     <div>
                       <p className="text-sm font-semibold text-slate-600">Duration (days)</p>
@@ -190,6 +216,12 @@ export default function OrderDetailPage() {
                     <div>
                       <p className="text-sm font-semibold text-slate-600">Event type</p>
                       <p className="text-base font-bold text-slate-900">{order.weddingType}</p>
+                    </div>
+                  ) : null}
+                  {order.referral ? (
+                    <div>
+                      <p className="text-sm font-semibold text-slate-600">Referral</p>
+                      <p className="text-base font-bold text-slate-900">{order.referral}</p>
                     </div>
                   ) : null}
                 </div>
