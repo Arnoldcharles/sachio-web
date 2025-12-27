@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 import Link from "next/link";
 import { OrderStatus, StatusPill } from "../../page";
@@ -76,10 +76,20 @@ export default function OrderDetailPage() {
       await updateDoc(doc(db, "orders", id), {
         amount,
         price: amount,
-        status: "processing",
+        status: "price_set",
         paymentStatus: "awaiting_payment",
+        priceSetAt: serverTimestamp(),
+        expiresAt: Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000),
       });
-      setOrder((prev: any) => ({ ...prev, amount, price: amount, status: "processing", paymentStatus: "awaiting_payment" }));
+      setOrder((prev: any) => ({
+        ...prev,
+        amount,
+        price: amount,
+        status: "price_set",
+        paymentStatus: "awaiting_payment",
+        priceSetAt: { seconds: Math.floor(Date.now() / 1000) },
+        expiresAt: { seconds: Math.floor((Date.now() + 24 * 60 * 60 * 1000) / 1000) },
+      }));
     } catch (err) {
       alert("Could not set price");
     } finally {
