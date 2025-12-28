@@ -50,7 +50,14 @@ export default function OrdersPage() {
             item: data.productTitle ?? data.productId ?? doc.id,
             customer: data.customerName ?? "Unknown",
             type: data.type === "rent" ? "Rent" : "Buy",
-            price: data.amount != null ? Number(data.amount) : data.price != null ? Number(data.price) : null,
+            price:
+              data.total != null
+                ? Number(data.total)
+                : data.amount != null
+                ? Number(data.amount)
+                : data.price != null
+                ? Number(data.price)
+                : null,
             status: data.status ?? "Processing",
             paymentStatus: data.paymentStatus ?? data.status,
             createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : undefined,
