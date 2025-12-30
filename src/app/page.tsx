@@ -1015,6 +1015,41 @@ export default function Home() {
               y: -2,
               boxShadow: "0px 10px 35px rgba(15,23,42,0.1)",
             }}
+            transition={{ duration: 0.4, delay: 0.05 }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Gallery</h2>
+                <p className="text-sm text-slate-500">
+                  Curate images for the mobile gallery tab.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                onClick={() => (window.location.href = "/gallery/new")}
+              >
+                Add gallery item
+              </button>
+              <button
+                className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 hover:shadow"
+                onClick={() => (window.location.href = "/gallery")}
+              >
+                View gallery
+              </button>
+            </div>
+          </motion.div>
+
+          <motion.div
+            className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            whileHover={{
+              y: -2,
+              boxShadow: "0px 10px 35px rgba(15,23,42,0.1)",
+            }}
             transition={{ duration: 0.4, delay: 0.1 }}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
