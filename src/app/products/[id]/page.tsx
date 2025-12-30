@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, updateDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 import Link from "next/link";
 
@@ -13,6 +13,7 @@ export default function ProductDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ title: "", price: "", category: "", inStock: true, description: "", imageUrl: "" });
+  const [reviews, setReviews] = useState<any[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -38,6 +39,36 @@ export default function ProductDetailPage() {
       }
     }
     load();
+    return () => {
+      mounted = false;
+    };
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    let mounted = true;
+    async function loadReviews() {
+      try {
+        const reviewsRef = collection(db, "products", id, "reviews");
+        const reviewsQuery = query(reviewsRef, orderBy("createdAt", "desc"), limit(20));
+        const snap = await getDocs(reviewsQuery);
+        if (!mounted) return;
+        const items = snap.docs.map((docSnap) => {
+          const data = docSnap.data() as any;
+          return {
+            id: docSnap.id,
+            rating: Number(data?.rating || 0),
+            text: data?.text || "",
+            userName: data?.userName || "Anonymous",
+            createdAt: data?.createdAt?.toDate?.() ?? null,
+          };
+        });
+        setReviews(items);
+      } catch (e) {
+        setReviews([]);
+      }
+    }
+    loadReviews();
     return () => {
       mounted = false;
     };
@@ -165,6 +196,41 @@ export default function ProductDetailPage() {
           >
             {saving ? "Saving…" : "Save changes"}
           </button>
+        </div>
+
+        <div className="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Reviews</h2>
+              <p className="text-sm text-slate-500">
+                {product?.ratingCount
+                  ? `${Number(product?.ratingAvg || 0).toFixed(1)} average · ${product?.ratingCount} total`
+                  : "No reviews yet."}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 space-y-4">
+            {reviews.length === 0 ? (
+              <p className="text-sm text-slate-500">No reviews submitted.</p>
+            ) : (
+              reviews.map((review) => (
+                <div key={review.id} className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-slate-900">{review.userName}</p>
+                    <p className="text-xs text-slate-500">
+                      {review.createdAt ? review.createdAt.toLocaleDateString() : ""}
+                    </p>
+                  </div>
+                  <p className="mt-1 text-sm font-semibold text-amber-500">
+                    {"★".repeat(Math.round(review.rating || 0)).padEnd(5, "☆")}
+                  </p>
+                  {review.text ? (
+                    <p className="mt-2 text-sm text-slate-600">{review.text}</p>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>

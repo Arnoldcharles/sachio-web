@@ -51,6 +51,8 @@ export default function NewProductPage() {
         description: form.description,
         imageUrl: form.imageUrl,
         inStock: form.inStock,
+        ratingAvg: 0,
+        ratingCount: 0,
         createdAt: serverTimestamp(),
       });
       router.push("/products");

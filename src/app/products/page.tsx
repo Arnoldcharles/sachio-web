@@ -11,6 +11,8 @@ type ProductRow = {
   category: string;
   price: number;
   inStock: boolean;
+  ratingAvg: number;
+  ratingCount: number;
 };
 
 export default function ProductsPage() {
@@ -32,6 +34,8 @@ export default function ProductsPage() {
             category: d.category ?? "General",
             price: Number(d.price) || 0,
             inStock: d.inStock !== false,
+            ratingAvg: Number(d.ratingAvg || 0),
+            ratingCount: Number(d.ratingCount || 0),
           };
         });
         setProducts(list);
@@ -71,6 +75,7 @@ export default function ProductsPage() {
                 <th className="px-4 py-3">Product</th>
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3">Price</th>
+                <th className="px-4 py-3">Rating</th>
                 <th className="px-4 py-3 text-center">Stock</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -78,13 +83,13 @@ export default function ProductsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                  <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
                     Loading products…
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                  <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
                     No products yet.
                   </td>
                 </tr>
@@ -94,6 +99,11 @@ export default function ProductsPage() {
                     <td className="px-4 py-3 font-semibold text-slate-900">{product.title}</td>
                     <td className="px-4 py-3 text-slate-700">{product.category}</td>
                     <td className="px-4 py-3 font-bold text-slate-900">₦{product.price.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {product.ratingCount
+                        ? `${product.ratingAvg.toFixed(1)} (${product.ratingCount})`
+                        : "New"}
+                    </td>
                     <td className="px-4 py-3 text-center">
                       <span className={`rounded-full px-3 py-1 text-xs font-bold ${product.inStock ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
                         {product.inStock ? "In stock" : "Out"}
