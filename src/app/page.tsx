@@ -14,7 +14,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
 import Image from "next/image";
@@ -92,6 +92,68 @@ const trendOptions = [
 
 const ADMIN_UID = "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2";
 const ADMIN_EMAIL = "arnoldcharles028@gmail.com";
+const motivationLines = [
+  "Keep the day moving; your decisions set the pace.",
+  "Small wins stack up into smooth operations.",
+  "Every order handled well builds loyal clients.",
+  "Clear updates keep the whole team aligned.",
+  "Lead with calm, execute with precision.",
+  "Great service is built in the details.",
+  "Tidy schedules, tidy outcomes.",
+  "Make today easy for customers and staff.",
+  "Stay consistent; trust follows.",
+  "Sharp focus turns pressure into progress.",
+  "Your planning saves hours later.",
+  "Every resolved issue raises the bar.",
+  "Steady progress beats rushed fixes.",
+  "Your leadership keeps things moving.",
+  "Make it smooth, make it reliable.",
+  "Hold the standard; quality shows.",
+  "Focus on the next best action.",
+  "Fast response builds confidence.",
+  "Great ops looks effortless to customers.",
+  "Protect the schedule; protect the brand.",
+  "Every delivery is a chance to impress.",
+  "Be proactive; prevent surprises.",
+  "Consistency wins long-term trust.",
+  "Clean execution is the best marketing.",
+  "Stay sharp, stay steady.",
+  "Good data makes great decisions.",
+  "Clarity today prevents chaos tomorrow.",
+  "Your attention keeps the system healthy.",
+  "Service first; results follow.",
+  "You are building a dependable operation.",
+];
+const fridayLines = [
+  "Wrap the week strong and smooth.",
+  "Finish proud and set up an easy Monday.",
+  "Close the week with clean execution.",
+  "End the week with calm, clear updates.",
+  "You earned the momentum; keep it steady.",
+  "Leave no loose ends and rest easy.",
+  "Strong finishes build stronger weeks.",
+  "Keep the tempo and deliver the details.",
+];
+const saturdayLines = [
+  "Keep service steady; weekends show the standard.",
+  "Today is about consistency and care.",
+  "Stay sharp and keep it simple.",
+  "A smooth Saturday earns big trust.",
+  "Handle the rush with calm focus.",
+  "Weekend wins are built on basics.",
+  "Stay proactive and protect the schedule.",
+  "Make it easy for customers today.",
+];
+const sundayLines = [
+  "Keep it light and reliable today.",
+  "Stay calm and finish clean.",
+  "Set up the week with a smooth close.",
+  "Today is for steady, thoughtful execution.",
+  "Quiet focus delivers big results.",
+  "Make it a clean, confident finish.",
+  "A steady Sunday sets the tone for Monday.",
+  "Keep it simple and strong.",
+];
 
 const fallbackData: DashboardData = {
   categories: [
@@ -200,10 +262,17 @@ export default function Home() {
   const [data, setData] = useState<DashboardData>(fallbackData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [announcing, setAnnouncing] = useState(false);
   const [trendDays, setTrendDays] = useState<number>(7);
   const [role, setRole] = useState<"superadmin" | "staff" | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [mounted, setMounted] = useState(false);
+  const [greeting, setGreeting] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeMobileSection, setActiveMobileSection] = useState<string | null>(
+    "orders"
+  );
+  const [showMobileTrend, setShowMobileTrend] = useState(false);
   const [revenueTotals, setRevenueTotals] = useState<RevenueTotals>({
     daily: 0,
     monthly: 0,
@@ -226,6 +295,119 @@ export default function Home() {
     setRole(storedRole);
     setEmail(storedEmail);
   }, [router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setMounted(true);
+    const storedTheme = localStorage.getItem("sachio_dashboard_theme");
+    if (storedTheme === "light" || storedTheme === "dark") {
+      setTheme(storedTheme);
+      return;
+    }
+    const prefersDark = window.matchMedia(
+      "(prefers-color-scheme: dark)"
+    ).matches;
+    setTheme(prefersDark ? "dark" : "light");
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("sachio_dashboard_theme", theme);
+    document.documentElement.classList.toggle(
+      "dashboard-theme-dark",
+      theme === "dark"
+    );
+    document.body.classList.toggle("dashboard-theme-dark", theme === "dark");
+  }, [theme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hour = new Date().getHours();
+    const day = new Date().getDay();
+    const greetingText =
+      hour < 12
+        ? "Good morning"
+        : hour < 17
+        ? "Good afternoon"
+        : "Good evening";
+    const dayPrefix =
+      day === 5 ? "Yay it's Friday." : day === 6 ? "Happy Saturday." : day === 0 ? "Happy Sunday." : "";
+    const activeLines =
+      day === 5 ? fridayLines : day === 6 ? saturdayLines : day === 0 ? sundayLines : motivationLines;
+    let index = hour % activeLines.length;
+    const updateGreeting = () => {
+      const message = activeLines[index % activeLines.length];
+      const parts = [greetingText + ".", dayPrefix, message].filter(Boolean);
+      setGreeting(parts.join(" "));
+      index += 1;
+    };
+    updateGreeting();
+    const interval = setInterval(updateGreeting, 65000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const summaryStats = useMemo(() => {
+    const getValue = (label: string) =>
+      data.stats.find((stat) => stat.label === label)?.value ?? "—";
+    return {
+      revenue: getValue("Revenue (MTD)"),
+      orders: getValue("Orders"),
+      rentals: getValue("Rentals in progress"),
+    };
+  }, [data.stats]);
+
+  const toggleMobileSection = (id: string) => {
+    setActiveMobileSection((prev) => (prev === id ? null : id));
+  };
+
+  const renderMobileSection = (
+    id: string,
+    title: string,
+    subtitle: string,
+    content: React.ReactNode
+  ) => (
+    <motion.div
+      key={id}
+      className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200"
+      initial={{ opacity: 0, y: 10 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.3 }}
+    >
+      <button
+        type="button"
+        className="flex w-full items-center justify-between text-left"
+        onClick={() => toggleMobileSection(id)}
+      >
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {subtitle}
+          </p>
+          <h3 className="text-lg font-bold text-slate-900">{title}</h3>
+        </div>
+        <span
+          className={`text-base text-slate-500 transition ${
+            activeMobileSection === id ? "rotate-180" : ""
+          }`}
+        >
+          ˅
+        </span>
+      </button>
+      <AnimatePresence initial={false}>
+        {activeMobileSection === id ? (
+          <motion.div
+            className="overflow-hidden"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+          >
+            <div className="pt-3">{content}</div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </motion.div>
+  );
 
   const touchStaffSession = async (
     status: "online" | "offline",
@@ -377,10 +559,6 @@ export default function Home() {
     setTimeout(() => URL.revokeObjectURL(pdfUrl), 1000);
   };
 
-  const handleAnnouncement = async () => {
-    if (typeof window === "undefined" || announcing) return;
-    window.location.href = "/announcements";
-  };
 
   const handleLogout = async () => {
     if (typeof window === "undefined") return;
@@ -557,7 +735,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-900">
-      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-4 py-6 sm:px-6 lg:gap-6 lg:px-8">
         {loading && (
           <div className="rounded-2xl border border-dashed border-emerald-300 bg-white/80 p-4 text-sm font-semibold text-emerald-700 shadow-sm ring-1 ring-emerald-200">
             Syncing live metrics from Firebase…
@@ -590,6 +768,20 @@ export default function Home() {
             <p className="text-sm text-slate-500">
               Track revenue, orders, rentals, and delivery performance.
             </p>
+            <AnimatePresence mode="wait">
+              {greeting ? (
+                <motion.p
+                  key={greeting}
+                  className="mt-2 text-sm font-semibold text-slate-700"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.8, ease: "easeOut" }}
+                >
+                  {greeting}
+                </motion.p>
+              ) : null}
+            </AnimatePresence>
             {role ? (
               <p className="mt-1 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
                 Logged in as{" "}
@@ -602,63 +794,479 @@ export default function Home() {
               </p>
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-3">
-            <motion.button
-              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
-              whileHover={{ scale: 1.03, y: -1 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleExport}
-            >
-              Export
-            </motion.button>
-            <motion.button
-              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
-              whileHover={{ scale: 1.03, y: -1 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleLogout}
-            >
-              Logout
-            </motion.button>
-            {role === "superadmin" ? (
-              <motion.button
-                className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
-                whileHover={{ scale: 1.03, y: -1 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => (window.location.href = "/staff/new")}
-              >
-                Manage staff
-              </motion.button>
-            ) : null}
-            <motion.button
-              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
-              whileHover={{ scale: 1.03, y: -1 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => (window.location.href = "/announcements")}
-            >
-              Announcements
-            </motion.button>
-            <motion.button
-              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
-              whileHover={{ scale: 1.03, y: -1 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => (window.location.href = "/users")}
-            >
-              Users
-            </motion.button>
-            <motion.button
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
-              whileHover={{ scale: 1.03, y: -1 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleAnnouncement}
-              disabled={announcing}
-            >
-              {announcing ? "Posting..." : "New Announcement"}
-            </motion.button>
-          </div>
         </motion.header>
 
+        <div className="sticky top-0 z-20 -mx-4 px-4 lg:hidden">
+          <motion.div
+            className="rounded-2xl bg-white/95 p-3 shadow-sm ring-1 ring-slate-200 backdrop-blur"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Today’s summary
+            </p>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+              <div className="rounded-xl bg-slate-50 px-2 py-2">
+                <p className="text-slate-500">Revenue</p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {summaryStats.revenue}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-2 py-2">
+                <p className="text-slate-500">Orders</p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {summaryStats.orders}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-2 py-2">
+                <p className="text-slate-500">Rentals</p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {summaryStats.rentals}
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+
+        <motion.section
+          className="hidden rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:block"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.05 }}
+        >
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Control Bar
+              </p>
+              <h2 className="text-lg font-bold text-slate-900">
+                Quick actions and settings
+              </h2>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <motion.button
+                className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                whileHover={{ scale: 1.03, y: -1 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleExport}
+              >
+                Export
+              </motion.button>
+              <motion.button
+                className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                whileHover={{ scale: 1.03, y: -1 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => (window.location.href = "/announcements")}
+              >
+                Announcements
+              </motion.button>
+              <motion.button
+                className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                whileHover={{ scale: 1.03, y: -1 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => (window.location.href = "/users")}
+              >
+                Users
+              </motion.button>
+              {role === "superadmin" ? (
+                <motion.button
+                  className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                  whileHover={{ scale: 1.03, y: -1 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => (window.location.href = "/staff/new")}
+                >
+                  Manage staff
+                </motion.button>
+              ) : null}
+              <motion.button
+                className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                whileHover={{ scale: 1.03, y: -1 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleLogout}
+              >
+                Logout
+              </motion.button>
+            </div>
+            <div className="flex items-center gap-3" suppressHydrationWarning>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Theme
+              </span>
+              <div className="flex rounded-full bg-slate-100 p-1 ring-1 ring-slate-200">
+                <button
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    (mounted ? theme : "light") === "light"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-600"
+                  }`}
+                  onClick={() => setTheme("light")}
+                  type="button"
+                >
+                  Light
+                </button>
+                <button
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    (mounted ? theme : "light") === "dark"
+                      ? "bg-slate-900 text-white shadow-sm"
+                      : "text-slate-600"
+                  }`}
+                  onClick={() => setTheme("dark")}
+                  type="button"
+                >
+                  Dark
+                </button>
+              </div>
+            </div>
+          </div>
+        </motion.section>
+
+        <section className="grid gap-3 lg:hidden">
+          {renderMobileSection(
+            "orders",
+            "Live Orders",
+            "Latest updates",
+            <div className="space-y-2">
+              {data.orders.map((order) => (
+                <button
+                  key={order.id}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs shadow-sm"
+                  onClick={() =>
+                    (window.location.href = `/orders/${order.id}`)
+                  }
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-slate-900">
+                        {order.id}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        {order.customer}
+                      </p>
+                    </div>
+                    <StatusPill status={order.status} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+                      {order.type}
+                    </span>
+                    <span className="font-bold text-slate-900">
+                      {order.total}
+                    </span>
+                    <span className="text-slate-500">{order.eta}</span>
+                  </div>
+                </button>
+              ))}
+              <button
+                className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                onClick={() => (window.location.href = "/orders")}
+              >
+                View all orders
+              </button>
+            </div>
+          )}
+
+          {renderMobileSection(
+            "products",
+            "Products",
+            "Inventory",
+            <div className="space-y-2">
+              {data.products.map((product) => (
+                <button
+                  key={product.id}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs shadow-sm"
+                  onClick={() =>
+                    (window.location.href = `/products/${product.id}`)
+                  }
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-slate-900">
+                      {product.title}
+                    </p>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                      {product.category}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-600">
+                    <span className="font-bold text-slate-900">
+                      {product.price}
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                        product.inStock
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-red-50 text-red-700"
+                      }`}
+                    >
+                      {product.inStock ? "In stock" : "Out"}
+                    </span>
+                  </div>
+                </button>
+              ))}
+              <button
+                className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                onClick={() => (window.location.href = "/products")}
+              >
+                View all products
+              </button>
+            </div>
+          )}
+
+          {renderMobileSection(
+            "categories",
+            "Categories",
+            "Segments",
+            <div className="space-y-2">
+              {data.categories.map((category) => (
+                <button
+                  key={category.id}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs shadow-sm"
+                  onClick={() =>
+                    (window.location.href = `/categories/${category.id}`)
+                  }
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-slate-900">
+                      {category.name}
+                    </p>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                      {category.count ?? 0}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {category.segment ?? "General"}
+                  </p>
+                </button>
+              ))}
+              <button
+                className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                onClick={() => (window.location.href = "/categories")}
+              >
+                View categories
+              </button>
+            </div>
+          )}
+
+          {renderMobileSection(
+            "gallery",
+            "Gallery",
+            "Mobile app",
+            <div className="flex flex-col gap-2">
+              <button
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"
+                onClick={() => (window.location.href = "/gallery/new")}
+              >
+                Add gallery item
+              </button>
+              <button
+                className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 ring-1 ring-slate-200"
+                onClick={() => (window.location.href = "/gallery")}
+              >
+                View gallery
+              </button>
+            </div>
+          )}
+
+          {renderMobileSection(
+            "alerts",
+            "Alerts",
+            "Attention needed",
+            <div className="space-y-2">
+              {data.alerts.map((alert, idx) => (
+                <AlertItem key={idx} title={alert.title} tone={alert.tone} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <motion.section
+          className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:hidden"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Revenue trend
+              </p>
+              <h3 className="text-lg font-bold text-slate-900">
+                Performance chart
+              </h3>
+            </div>
+            <button
+              className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white"
+              onClick={() => setShowMobileTrend((prev) => !prev)}
+            >
+              {showMobileTrend ? "Hide chart" : "View chart"}
+            </button>
+          </div>
+          <AnimatePresence initial={false}>
+            {showMobileTrend ? (
+              <motion.div
+                className="mt-4 grid grid-cols-4 gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.35, ease: "easeOut" }}
+              >
+                {(() => {
+                  const maxValue = Math.max(
+                    ...data.revenueTrend.map((point) => point.value),
+                    1
+                  );
+                  return data.revenueTrend.slice(-8).map((point, i) => {
+                    const height = Math.round((point.value / maxValue) * 100);
+                    return (
+                      <div key={i} className="flex flex-col items-center gap-1">
+                        <div className="flex h-16 w-full items-end rounded-lg bg-slate-200 overflow-hidden">
+                          <motion.div
+                            className="w-full rounded-lg bg-gradient-to-t from-emerald-500 to-teal-500"
+                            initial={{ height: "0%" }}
+                            animate={{ height: `${height}%` }}
+                            transition={{ delay: i * 0.03, type: "spring" }}
+                          />
+                        </div>
+                        <span className="text-[10px] font-semibold text-slate-500">
+                          {point.label}
+                        </span>
+                      </div>
+                    );
+                  });
+                })()}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </motion.section>
+
+        <AnimatePresence>
+          {sidebarOpen ? (
+            <div className="lg:hidden">
+              <motion.button
+                type="button"
+                className="fixed inset-0 z-40 bg-black/40"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSidebarOpen(false)}
+                aria-label="Close menu"
+              />
+              <motion.aside
+                className="fixed right-0 top-0 z-50 h-full w-[78%] max-w-[320px] overflow-y-auto bg-white p-5 shadow-2xl ring-1 ring-slate-200"
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", stiffness: 260, damping: 30 }}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Control Bar
+                    </p>
+                    <h2 className="text-lg font-bold text-slate-900">Menu</h2>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700"
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="mt-5 space-y-3">
+                  <motion.button
+                    className="w-full rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      setSidebarOpen(false);
+                      handleExport();
+                    }}
+                  >
+                    Export
+                  </motion.button>
+                  <motion.button
+                    className="w-full rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      setSidebarOpen(false);
+                      window.location.href = "/announcements";
+                    }}
+                  >
+                    Announcements
+                  </motion.button>
+                  <motion.button
+                    className="w-full rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      setSidebarOpen(false);
+                      window.location.href = "/users";
+                    }}
+                  >
+                    Users
+                  </motion.button>
+                  {role === "superadmin" ? (
+                    <motion.button
+                      className="w-full rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => {
+                        setSidebarOpen(false);
+                        window.location.href = "/staff/new";
+                      }}
+                    >
+                      Manage staff
+                    </motion.button>
+                  ) : null}
+                  <motion.button
+                    className="w-full rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:shadow"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      setSidebarOpen(false);
+                      handleLogout();
+                    }}
+                  >
+                    Logout
+                  </motion.button>
+                </div>
+                <div className="mt-6 border-t border-slate-200 pt-4" suppressHydrationWarning>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Theme
+                  </p>
+                  <div className="mt-3 flex rounded-full bg-slate-100 p-1 ring-1 ring-slate-200">
+                    <button
+                      className={`flex-1 rounded-full px-3 py-2 text-xs font-semibold ${
+                        (mounted ? theme : "light") === "light"
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-600"
+                      }`}
+                      onClick={() => setTheme("light")}
+                      type="button"
+                    >
+                      Light
+                    </button>
+                    <button
+                      className={`flex-1 rounded-full px-3 py-2 text-xs font-semibold ${
+                        (mounted ? theme : "light") === "dark"
+                          ? "bg-slate-900 text-white shadow-sm"
+                          : "text-slate-600"
+                      }`}
+                      onClick={() => setTheme("dark")}
+                      type="button"
+                    >
+                      Dark
+                    </button>
+                  </div>
+                </div>
+              </motion.aside>
+            </div>
+          ) : null}
+        </AnimatePresence>
+
         {role === "staff" ? null : (
-          <section className="grid gap-4 xs:grid-cols-2 lg:grid-cols-4">
+          <section className="grid gap-3 xs:grid-cols-2 lg:grid-cols-4 lg:gap-4">
             {data.stats.map((stat, idx) => (
               <motion.div
                 key={stat.label}
@@ -702,7 +1310,7 @@ export default function Home() {
           </section>
         )}
 
-        <section className="grid gap-4 lg:grid-cols-3">
+        <section className="hidden gap-4 lg:grid lg:grid-cols-3">
           <motion.div
             className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2"
             initial={{ opacity: 0, y: 20 }}
@@ -895,7 +1503,7 @@ export default function Home() {
           </motion.div>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-3">
+        <section className="hidden gap-4 lg:grid lg:grid-cols-3">
           {role === "staff" ? null : (
             <motion.div
               className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2"
@@ -1081,7 +1689,7 @@ export default function Home() {
           </motion.div>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-3">
+        <section className="hidden gap-4 lg:grid lg:grid-cols-3">
           {role === "staff" ? null : (
             <motion.div
               className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 lg:col-span-2"
@@ -1222,6 +1830,15 @@ export default function Home() {
             </motion.div>
           </div>
         ) : null}
+        <motion.button
+          type="button"
+          className="fixed bottom-5 right-5 z-40 rounded-full bg-emerald-600 px-4 py-3 text-xs font-semibold text-white shadow-lg lg:hidden"
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={() => setSidebarOpen(true)}
+        >
+          Quick actions
+        </motion.button>
         {error && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             {error}

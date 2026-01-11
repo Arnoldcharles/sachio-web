@@ -25,3 +25,68 @@ body {
   color: var(--foreground);
   font-family: "Nunito Sans", "Helvetica Neue", Arial, sans-serif;
 }
+
+.dashboard-theme-dark {
+  background-color: #0b1220 !important;
+  color: #e2e8f0;
+}
+
+.dashboard-theme-dark .bg-\[\#f5f7fb\] {
+  background-color: #0b1220 !important;
+}
+
+.dashboard-theme-dark .bg-white {
+  background-color: #111827 !important;
+}
+
+.dashboard-theme-dark .bg-white\/95 {
+  background-color: rgba(17, 24, 39, 0.95) !important;
+}
+
+.dashboard-theme-dark .bg-slate-50 {
+  background-color: #0f172a !important;
+}
+
+.dashboard-theme-dark .bg-slate-100 {
+  background-color: #111827 !important;
+}
+
+.dashboard-theme-dark .bg-slate-200 {
+  background-color: #1f2937 !important;
+}
+
+.dashboard-theme-dark .text-slate-900 {
+  color: #f8fafc !important;
+}
+
+.dashboard-theme-dark .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+
+.dashboard-theme-dark .text-slate-600 {
+  color: #cbd5f5 !important;
+}
+
+.dashboard-theme-dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+.dashboard-theme-dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+.dashboard-theme-dark .border-slate-200 {
+  border-color: #1f2937 !important;
+}
+
+.dashboard-theme-dark .border-slate-100 {
+  border-color: #1f2937 !important;
+}
+
+.dashboard-theme-dark .ring-slate-200 {
+  --tw-ring-color: #1f2937 !important;
+}
+
+.dashboard-theme-dark .ring-slate-100 {
+  --tw-ring-color: #1f2937 !important;
+}
