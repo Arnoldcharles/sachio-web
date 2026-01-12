@@ -739,6 +739,18 @@ export default function Home() {
         {loading && (
           <div className="rounded-2xl border border-dashed border-emerald-300 bg-white/80 p-4 text-sm font-semibold text-emerald-700 shadow-sm ring-1 ring-emerald-200">
             Syncing live metrics from Firebase…
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-emerald-100">
+              <motion.div
+                className="h-full w-1/3 rounded-full bg-emerald-500"
+                initial={{ x: "-100%" }}
+                animate={{ x: "300%" }}
+                transition={{
+                  duration: 1.4,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }}
+              />
+            </div>
           </div>
         )}
         <motion.header
