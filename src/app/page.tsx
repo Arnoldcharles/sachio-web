@@ -273,6 +273,7 @@ export default function Home() {
     "orders"
   );
   const [showMobileTrend, setShowMobileTrend] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [revenueTotals, setRevenueTotals] = useState<RevenueTotals>({
     daily: 0,
     monthly: 0,
@@ -355,6 +356,20 @@ export default function Home() {
       rentals: getValue("Rentals in progress"),
     };
   }, [data.stats]);
+
+  const sparklineValues = useMemo(
+    () => data.revenueTrend.map((point) => point.value),
+    [data.revenueTrend]
+  );
+
+  const sparklineForIndex = (index: number) => {
+    if (!sparklineValues.length) return [];
+    const offset = index % sparklineValues.length;
+    return [
+      ...sparklineValues.slice(offset),
+      ...sparklineValues.slice(0, offset),
+    ];
+  };
 
   const toggleMobileSection = (id: string) => {
     setActiveMobileSection((prev) => (prev === id ? null : id));
@@ -719,10 +734,12 @@ export default function Home() {
             : fallbackData.revenueTrend,
         });
         setRevenueTotals(totals);
+        setLastUpdated(new Date());
       } catch (err) {
         console.warn("Dashboard fetch failed", err);
         if (mounted) setError("Realtime data unavailable. Showing snapshot.");
         setData(fallbackData);
+        setLastUpdated(new Date());
       } finally {
         if (mounted) setLoading(false);
       }
@@ -792,6 +809,25 @@ export default function Home() {
                 >
                   {greeting}
                 </motion.p>
+              ) : null}
+            </AnimatePresence>
+            <AnimatePresence mode="wait">
+              {lastUpdated ? (
+                <motion.span
+                  key={lastUpdated.getTime()}
+                  className="mt-2 inline-flex w-fit items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.6 }}
+                  suppressHydrationWarning
+                >
+                  Updated{" "}
+                  {lastUpdated.toLocaleTimeString("en-NG", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </motion.span>
               ) : null}
             </AnimatePresence>
             {role ? (
@@ -955,7 +991,7 @@ export default function Home() {
                         {order.customer}
                       </p>
                     </div>
-                    <StatusPill status={order.status} />
+                    <StatusPillWithPulse status={order.status} />
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
@@ -1288,10 +1324,13 @@ export default function Home() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 whileHover={{
-                  y: -2,
-                  boxShadow: "0px 8px 30px rgba(15, 23, 42, 0.08)",
+                  y: -3,
+                  rotateX: 2,
+                  rotateY: -2,
+                  boxShadow: "0px 12px 32px rgba(15, 23, 42, 0.12)",
                 }}
                 transition={{ delay: idx * 0.08 }}
+                style={{ transformPerspective: 900 }}
                 onClick={() => {
                   if (stat.label === "Revenue (MTD)") {
                     setShowRevenueDetails(true);
@@ -1317,6 +1356,9 @@ export default function Home() {
                     {stat.delta} vs last week
                   </p>
                 ) : null}
+                <div className="mt-3">
+                  <Sparkline values={sparklineForIndex(idx)} tone={stat.tone} />
+                </div>
               </motion.div>
             ))}
           </section>
@@ -1344,89 +1386,100 @@ export default function Home() {
               </button>
             </div>
             <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="hidden w-full min-w-[600px] text-sm sm:table">
-                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Order</th>
-                    <th className="px-4 py-3">Customer</th>
-                    <th className="px-4 py-3">Type</th>
-                    <th className="px-4 py-3">Total</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3 text-right">ETA</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.orders.map((order) => (
-                    <motion.tr
-                      key={order.id}
-                      className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      whileHover={{ scale: 1.005 }}
-                      transition={{ duration: 0.2 }}
-                      onClick={() =>
-                        (window.location.href = `/orders/${order.id}`)
-                      }
-                    >
-                      <td className="px-4 py-3 font-semibold text-slate-900">
-                        {order.id}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {order.customer}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
-                          {order.type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-bold text-slate-900">
-                        {order.total}
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusPill status={order.status} />
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-600">
-                        {order.eta}
-                      </td>
-                    </motion.tr>
-                  ))}
-                </tbody>
-              </table>
+              {data.orders.length ? (
+                <>
+                  <table className="hidden w-full min-w-[600px] text-sm sm:table">
+                    <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">Order</th>
+                        <th className="px-4 py-3">Customer</th>
+                        <th className="px-4 py-3">Type</th>
+                        <th className="px-4 py-3">Total</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3 text-right">ETA</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.orders.map((order) => (
+                        <motion.tr
+                          key={order.id}
+                          className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          whileHover={{ scale: 1.005 }}
+                          transition={{ duration: 0.2 }}
+                          onClick={() =>
+                            (window.location.href = `/orders/${order.id}`)
+                          }
+                        >
+                          <td className="px-4 py-3 font-semibold text-slate-900">
+                            {order.id}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {order.customer}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+                              {order.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-bold text-slate-900">
+                            {order.total}
+                          </td>
+                          <td className="px-4 py-3">
+                            <StatusPillWithPulse status={order.status} />
+                          </td>
+                          <td className="px-4 py-3 text-right text-slate-600">
+                            {order.eta}
+                          </td>
+                        </motion.tr>
+                      ))}
+                    </tbody>
+                  </table>
 
-              <div className="space-y-3 p-3 sm:hidden">
-                {data.orders.map((order) => (
-                  <motion.button
-                    key={order.id}
-                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-100"
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    whileHover={{ scale: 1.01 }}
-                    transition={{ duration: 0.2 }}
-                    onClick={() =>
-                      (window.location.href = `/orders/${order.id}`)
-                    }
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          {order.id}
-                        </p>
-                        <p className="text-sm font-bold text-slate-900">
-                          {order.customer}
-                        </p>
-                      </div>
-                      <StatusPill status={order.status} />
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">
-                        {order.type}
-                      </span>
-                      <span className="text-slate-900">{order.total}</span>
-                      <span className="text-slate-500">{order.eta}</span>
-                    </div>
-                  </motion.button>
-                ))}
-              </div>
+                  <div className="space-y-3 p-3 sm:hidden">
+                    {data.orders.map((order) => (
+                      <motion.button
+                        key={order.id}
+                        className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-100"
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        whileHover={{ scale: 1.01 }}
+                        transition={{ duration: 0.2 }}
+                        onClick={() =>
+                          (window.location.href = `/orders/${order.id}`)
+                        }
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              {order.id}
+                            </p>
+                            <p className="text-sm font-bold text-slate-900">
+                              {order.customer}
+                            </p>
+                          </div>
+                          <StatusPillWithPulse status={order.status} />
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                            {order.type}
+                          </span>
+                          <span className="text-slate-900">{order.total}</span>
+                          <span className="text-slate-500">{order.eta}</span>
+                        </div>
+                      </motion.button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="p-4">
+                  <EmptyState
+                    title="No orders yet"
+                    detail="New orders will appear here once created."
+                  />
+                </div>
+              )}
             </div>
           </motion.div>
 
@@ -1861,6 +1914,47 @@ export default function Home() {
   );
 }
 
+function Sparkline({
+  values,
+  tone,
+}: {
+  values: number[];
+  tone?: "green" | "orange" | "red";
+}) {
+  if (!values.length) {
+    return <div className="h-6 w-full rounded-md bg-slate-100" />;
+  }
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = Math.max(max - min, 1);
+  const points = values
+    .slice(-10)
+    .map((value, index, arr) => {
+      const x = (index / (arr.length - 1 || 1)) * 100;
+      const y = 100 - ((value - min) / range) * 100;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  const stroke =
+    tone === "red"
+      ? "#dc2626"
+      : tone === "orange"
+      ? "#d97706"
+      : "#059669";
+  return (
+    <svg viewBox="0 0 100 40" className="h-6 w-full">
+      <polyline
+        fill="none"
+        stroke={stroke}
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+      />
+    </svg>
+  );
+}
+
 export function StatusPill({ status }: { status: OrderStatus }) {
   const normalized = status.replace(/_/g, " ");
   const label = normalized.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -1879,6 +1973,42 @@ export function StatusPill({ status }: { status: OrderStatus }) {
     <span className={`rounded-full px-3 py-1 text-xs font-bold ${colors}`}>
       {label}
     </span>
+  );
+}
+
+function StatusPillWithPulse({ status }: { status: OrderStatus }) {
+  const pulseStatuses = ["Processing", "Dispatched", "In transit"];
+  const showPulse = pulseStatuses.includes(status);
+  const dotColor =
+    status === "Dispatched" || status === "In transit"
+      ? "bg-blue-500"
+      : "bg-amber-500";
+  return (
+    <div className="inline-flex items-center gap-2">
+      {showPulse ? (
+        <span className="relative flex h-2.5 w-2.5">
+          <span
+            className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${dotColor}`}
+          />
+          <span
+            className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dotColor}`}
+          />
+        </span>
+      ) : null}
+      <StatusPill status={status} />
+    </div>
+  );
+}
+
+function EmptyState({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+        --
+      </div>
+      <p className="font-semibold text-slate-700">{title}</p>
+      <p className="text-xs text-slate-500">{detail}</p>
+    </div>
   );
 }
 
@@ -1901,6 +2031,8 @@ function AlertItem({
       className={`w-full rounded-xl border border-transparent px-3 py-2 text-left text-xs font-semibold ring-1 transition hover:brightness-95 ${colors}`}
       initial={{ opacity: 0, x: 10 }}
       animate={{ opacity: 1, x: 0 }}
+      whileHover={{ y: -2, rotateX: 2, rotateY: -2 }}
+      style={{ transformPerspective: 800 }}
       onClick={() => {
         if (title.toLowerCase().includes("product")) {
           window.location.href = "/products";
