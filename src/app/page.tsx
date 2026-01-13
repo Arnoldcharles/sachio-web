@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   addDoc,
   collection,
   doc,
   getDocs,
   limit,
+  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -155,6 +156,42 @@ const sundayLines = [
   "Keep it simple and strong.",
 ];
 
+function computeOperationalHealth(
+  orders: RawOrder[],
+  products: Product[],
+  alerts: Alert[]
+): Lane[] {
+  const totalProducts = products.length;
+  const inStock = products.filter((product) => product.inStock).length;
+  const fleetReadiness = totalProducts
+    ? Math.round((inStock / totalProducts) * 100)
+    : 0;
+
+  const totalOrders = orders.length;
+  const completed = orders.filter((order) =>
+    ["Completed", "Delivered"].includes(order.status)
+  ).length;
+  const sanitationCycle = totalOrders
+    ? Math.round((completed / totalOrders) * 100)
+    : 0;
+
+  const cancelled = orders.filter((order) =>
+    order.status.toLowerCase().includes("cancel")
+  ).length;
+  const dispatchReliability = totalOrders
+    ? Math.round(((totalOrders - cancelled) / totalOrders) * 100)
+    : 0;
+
+  const supportLoad = Math.max(0, 100 - alerts.length * 12);
+
+  return [
+    { label: "Fleet Readiness", value: fleetReadiness },
+    { label: "Sanitation Cycle", value: sanitationCycle },
+    { label: "Dispatch Reliability", value: dispatchReliability },
+    { label: "Customer Support Load", value: supportLoad },
+  ];
+}
+
 const fallbackData: DashboardData = {
   categories: [
     { id: "cat-vip", name: "VIP Units" },
@@ -274,6 +311,10 @@ export default function Home() {
   );
   const [showMobileTrend, setShowMobileTrend] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const lastOpsSync = useRef<string>("");
+  const rawOrdersRef = useRef<RawOrder[]>([]);
+  const productsRef = useRef<Product[]>([]);
+  const alertsRef = useRef<Alert[]>([]);
   const [revenueTotals, setRevenueTotals] = useState<RevenueTotals>({
     daily: 0,
     monthly: 0,
@@ -373,6 +414,29 @@ export default function Home() {
 
   const toggleMobileSection = (id: string) => {
     setActiveMobileSection((prev) => (prev === id ? null : id));
+  };
+
+  const syncOperationalHealth = async (lanes: Lane[]) => {
+    const payload = JSON.stringify(lanes);
+    if (payload === lastOpsSync.current) return;
+    lastOpsSync.current = payload;
+    try {
+      await Promise.all(
+        lanes.map((lane) =>
+          setDoc(
+            doc(db, "operations", lane.label.toLowerCase().replace(/\s+/g, "_")),
+            {
+              label: lane.label,
+              value: lane.value,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          )
+        )
+      );
+    } catch (err) {
+      console.warn("Operational health sync failed", err);
+    }
   };
 
   const renderMobileSection = (
@@ -620,6 +684,9 @@ export default function Home() {
 
   useEffect(() => {
     let mounted = true;
+    let unsubscribeOrders: (() => void) | null = null;
+    let unsubscribeProducts: (() => void) | null = null;
+    let unsubscribeAlerts: (() => void) | null = null;
     async function load() {
       try {
         const statsSnap = await getDocs(collection(db, "dashboardStats"));
@@ -676,6 +743,7 @@ export default function Home() {
             inStock: d.inStock !== false,
           };
         });
+        productsRef.current = products;
 
         const categoriesQuery = query(
           collection(db, "categories"),
@@ -694,12 +762,6 @@ export default function Home() {
           };
         });
 
-        const opsSnap = await getDocs(collection(db, "operations"));
-        const lanes = opsSnap.docs.map((doc) => {
-          const d = doc.data();
-          return { label: d.label ?? doc.id, value: d.value ?? 0 };
-        });
-
         const alertsSnap = await getDocs(collection(db, "alerts"));
         const alerts = alertsSnap.docs.map((doc) => {
           const d = doc.data();
@@ -708,6 +770,7 @@ export default function Home() {
             tone: (d.tone ?? "red") as Alert["tone"],
           };
         });
+        alertsRef.current = alerts;
 
         const derivedStats = stats.length
           ? stats
@@ -717,6 +780,8 @@ export default function Home() {
           alerts.length === 0
             ? buildAlertsFromData(rawOrders, products)
             : alerts;
+
+        const lanes = computeOperationalHealth(rawOrders, products, derivedAlerts);
 
         const revenueTrend = buildRevenueTrend(rawOrders, trendDays);
         const totals = buildRevenueTotals(rawOrders);
@@ -735,6 +800,7 @@ export default function Home() {
         });
         setRevenueTotals(totals);
         setLastUpdated(new Date());
+        await syncOperationalHealth(lanes);
       } catch (err) {
         console.warn("Dashboard fetch failed", err);
         if (mounted) setError("Realtime data unavailable. Showing snapshot.");
@@ -745,8 +811,111 @@ export default function Home() {
       }
     }
     load();
+    const ordersQueryLive = query(
+      collection(db, "orders"),
+      orderBy("createdAt", "desc"),
+      limit(7)
+    );
+    unsubscribeOrders = onSnapshot(
+      ordersQueryLive,
+      (snapshot) => {
+        if (!mounted) return;
+        const rawOrders: RawOrder[] = snapshot.docs.map((doc) => {
+          const d = doc.data() as any;
+          return {
+            id: doc.id,
+            customer: d.customerName ?? "Unknown",
+            type: (d.type === "rent" ? "Rent" : "Buy") as Order["type"],
+            amount: Number(d.price) || 0,
+            status: normalizeStatus(d.status),
+            eta: d.eta ?? "-",
+            createdAt: d.createdAt?.toDate
+              ? d.createdAt.toDate()
+              : d.createdAt
+              ? new Date(d.createdAt)
+              : null,
+          };
+        });
+        const orders = rawOrders.map(({ amount, ...rest }) => ({
+          ...rest,
+          total: `ƒ,İ${amount.toLocaleString()}`,
+        }));
+        rawOrdersRef.current = rawOrders;
+        setData((prev) => ({ ...prev, orders }));
+        const lanes = computeOperationalHealth(rawOrders, data.products, data.alerts);
+        setData((prev) => ({ ...prev, lanes }));
+        setRevenueTotals(buildRevenueTotals(rawOrders));
+        setLastUpdated(new Date());
+        syncOperationalHealth(lanes);
+      },
+      (err) => console.warn("Orders live update failed", err)
+    );
+
+    const productsQueryLive = query(
+      collection(db, "products"),
+      orderBy("createdAt", "desc"),
+      limit(5)
+    );
+    unsubscribeProducts = onSnapshot(
+      productsQueryLive,
+      (snapshot) => {
+        if (!mounted) return;
+        const products = snapshot.docs.map((doc) => {
+          const d = doc.data() as any;
+          return {
+            id: doc.id,
+            title: d.title ?? "Untitled",
+            price: d.price ? `ƒ,İ${Number(d.price).toLocaleString()}` : "ƒ,İ0",
+            category: d.category ?? "General",
+            inStock: d.inStock !== false,
+          };
+        });
+        setData((prev) => ({ ...prev, products }));
+        const lanes = computeOperationalHealth(data.orders.map((o) => ({
+          id: o.id,
+          customer: o.customer,
+          type: o.type,
+          amount: Number(o.total.replace(/[^\d.]/g, "")) || 0,
+          status: o.status,
+          eta: o.eta,
+          createdAt: null,
+        })), products, data.alerts);
+        setData((prev) => ({ ...prev, lanes }));
+        setLastUpdated(new Date());
+        syncOperationalHealth(lanes);
+      },
+      (err) => console.warn("Products live update failed", err)
+    );
+
+    const alertsQueryLive = query(collection(db, "alerts"));
+    unsubscribeAlerts = onSnapshot(
+      alertsQueryLive,
+      (snapshot) => {
+        if (!mounted) return;
+        const alerts = snapshot.docs.map((doc) => {
+          const d = doc.data();
+          return {
+            title: d.title ?? "Alert",
+            tone: (d.tone ?? "red") as Alert["tone"],
+          };
+        });
+        alertsRef.current = alerts;
+        const lanes = computeOperationalHealth(
+          rawOrdersRef.current,
+          productsRef.current,
+          alerts
+        );
+        setData((prev) => ({ ...prev, alerts, lanes }));
+        setLastUpdated(new Date());
+        syncOperationalHealth(lanes);
+      },
+      (err) => console.warn("Alerts live update failed", err)
+    );
     return () => {
       mounted = false;
+      if (unsubscribeOrders) unsubscribeOrders();
+      if (unsubscribeProducts) unsubscribeProducts();
+      if (unsubscribeAlerts) unsubscribeAlerts();
     };
   }, [trendDays]);
 
@@ -974,42 +1143,51 @@ export default function Home() {
             "Live Orders",
             "Latest updates",
             <div className="space-y-2">
-              {data.orders.map((order) => (
-                <button
-                  key={order.id}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs shadow-sm"
-                  onClick={() =>
-                    (window.location.href = `/orders/${order.id}`)
-                  }
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        {order.id}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        {order.customer}
-                      </p>
-                    </div>
-                    <StatusPillWithPulse status={order.status} />
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
-                      {order.type}
-                    </span>
-                    <span className="font-bold text-slate-900">
-                      {order.total}
-                    </span>
-                    <span className="text-slate-500">{order.eta}</span>
-                  </div>
-                </button>
-              ))}
-              <button
-                className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
-                onClick={() => (window.location.href = "/orders")}
-              >
-                View all orders
-              </button>
+              {data.orders.length ? (
+                <>
+                  {data.orders.map((order) => (
+                    <button
+                      key={order.id}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs shadow-sm"
+                      onClick={() =>
+                        (window.location.href = `/orders/${order.id}`)
+                      }
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-slate-900">
+                            {order.id}
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            {order.customer}
+                          </p>
+                        </div>
+                        <StatusPillWithPulse status={order.status} />
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+                          {order.type}
+                        </span>
+                        <span className="font-bold text-slate-900">
+                          {order.total}
+                        </span>
+                        <span className="text-slate-500">{order.eta}</span>
+                      </div>
+                    </button>
+                  ))}
+                  <button
+                    className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                    onClick={() => (window.location.href = "/orders")}
+                  >
+                    View all orders
+                  </button>
+                </>
+              ) : (
+                <EmptyState
+                  title="No orders yet"
+                  detail="New orders will appear here once created."
+                />
+              )}
             </div>
           )}
 
@@ -1018,44 +1196,53 @@ export default function Home() {
             "Products",
             "Inventory",
             <div className="space-y-2">
-              {data.products.map((product) => (
-                <button
-                  key={product.id}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs shadow-sm"
-                  onClick={() =>
-                    (window.location.href = `/products/${product.id}`)
-                  }
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-semibold text-slate-900">
-                      {product.title}
-                    </p>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
-                      {product.category}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-600">
-                    <span className="font-bold text-slate-900">
-                      {product.price}
-                    </span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                        product.inStock
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-red-50 text-red-700"
-                      }`}
+              {data.products.length ? (
+                <>
+                  {data.products.map((product) => (
+                    <button
+                      key={product.id}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs shadow-sm"
+                      onClick={() =>
+                        (window.location.href = `/products/${product.id}`)
+                      }
                     >
-                      {product.inStock ? "In stock" : "Out"}
-                    </span>
-                  </div>
-                </button>
-              ))}
-              <button
-                className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
-                onClick={() => (window.location.href = "/products")}
-              >
-                View all products
-              </button>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-semibold text-slate-900">
+                          {product.title}
+                        </p>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                          {product.category}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-[11px] text-slate-600">
+                        <span className="font-bold text-slate-900">
+                          {product.price}
+                        </span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                            product.inStock
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-red-50 text-red-700"
+                          }`}
+                        >
+                          {product.inStock ? "In stock" : "Out"}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                  <button
+                    className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                    onClick={() => (window.location.href = "/products")}
+                  >
+                    View all products
+                  </button>
+                </>
+              ) : (
+                <EmptyState
+                  title="No products yet"
+                  detail="Add products to populate this list."
+                />
+              )}
             </div>
           )}
 
@@ -1064,33 +1251,42 @@ export default function Home() {
             "Categories",
             "Segments",
             <div className="space-y-2">
-              {data.categories.map((category) => (
-                <button
-                  key={category.id}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs shadow-sm"
-                  onClick={() =>
-                    (window.location.href = `/categories/${category.id}`)
-                  }
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="font-semibold text-slate-900">
-                      {category.name}
-                    </p>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
-                      {category.count ?? 0}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {category.segment ?? "General"}
-                  </p>
-                </button>
-              ))}
-              <button
-                className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
-                onClick={() => (window.location.href = "/categories")}
-              >
-                View categories
-              </button>
+              {data.categories.length ? (
+                <>
+                  {data.categories.map((category) => (
+                    <button
+                      key={category.id}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs shadow-sm"
+                      onClick={() =>
+                        (window.location.href = `/categories/${category.id}`)
+                      }
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold text-slate-900">
+                          {category.name}
+                        </p>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                          {category.count ?? 0}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        {category.segment ?? "General"}
+                      </p>
+                    </button>
+                  ))}
+                  <button
+                    className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                    onClick={() => (window.location.href = "/categories")}
+                  >
+                    View categories
+                  </button>
+                </>
+              ) : (
+                <EmptyState
+                  title="No categories yet"
+                  detail="Create categories to organize products."
+                />
+              )}
             </div>
           )}
 
@@ -1119,9 +1315,16 @@ export default function Home() {
             "Alerts",
             "Attention needed",
             <div className="space-y-2">
-              {data.alerts.map((alert, idx) => (
-                <AlertItem key={idx} title={alert.title} tone={alert.tone} />
-              ))}
+              {data.alerts.length ? (
+                data.alerts.map((alert, idx) => (
+                  <AlertItem key={idx} title={alert.title} tone={alert.tone} />
+                ))
+              ) : (
+                <EmptyState
+                  title="No alerts right now"
+                  detail="All operational areas look healthy."
+                />
+              )}
             </div>
           )}
         </section>
@@ -1512,58 +1715,69 @@ export default function Home() {
               </div>
             </div>
             <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="hidden w-full min-w-[280px] text-sm sm:table">
-                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Category</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.categories.map((category) => (
-                    <tr
-                      key={category.id}
-                      className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
-                      onClick={() =>
-                        (window.location.href = `/categories/${category.id}`)
-                      }
-                    >
-                      <td className="px-4 py-3">
+              {data.categories.length ? (
+                <>
+                  <table className="hidden w-full min-w-[280px] text-sm sm:table">
+                    <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">Category</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.categories.map((category) => (
+                        <tr
+                          key={category.id}
+                          className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
+                          onClick={() =>
+                            (window.location.href = `/categories/${category.id}`)
+                          }
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700">
+                                {category.name.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="font-semibold text-slate-900">
+                                  {category.name}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className="space-y-3 p-3 sm:hidden">
+                    {data.categories.map((category) => (
+                      <button
+                        key={category.id}
+                        className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-100"
+                        onClick={() =>
+                          (window.location.href = `/categories/${category.id}`)
+                        }
+                      >
                         <div className="flex items-center gap-3">
                           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700">
                             {category.name.slice(0, 2).toUpperCase()}
                           </div>
-                          <div>
-                            <p className="font-semibold text-slate-900">
-                              {category.name}
-                            </p>
-                          </div>
+                          <p className="font-semibold text-slate-900">
+                            {category.name}
+                          </p>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              <div className="space-y-3 p-3 sm:hidden">
-                {data.categories.map((category) => (
-                  <button
-                    key={category.id}
-                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-100"
-                    onClick={() =>
-                      (window.location.href = `/categories/${category.id}`)
-                    }
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700">
-                        {category.name.slice(0, 2).toUpperCase()}
-                      </div>
-                      <p className="font-semibold text-slate-900">
-                        {category.name}
-                      </p>
-                    </div>
-                  </button>
-                ))}
-              </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="p-4">
+                  <EmptyState
+                    title="No categories yet"
+                    detail="Create categories to organize products."
+                  />
+                </div>
+              )}
             </div>
           </motion.div>
         </section>
@@ -1598,37 +1812,74 @@ export default function Home() {
                   </button>
                 </div>
               </div>
-              <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
-                <table className="hidden w-full min-w-[500px] text-sm sm:table">
-                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3">Product</th>
-                      <th className="px-4 py-3">Category</th>
-                      <th className="px-4 py-3">Price</th>
-                      <th className="px-4 py-3 text-center">Stock</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+            <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
+              {data.products.length ? (
+                <>
+                  <table className="hidden w-full min-w-[500px] text-sm sm:table">
+                    <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">Product</th>
+                        <th className="px-4 py-3">Category</th>
+                        <th className="px-4 py-3">Price</th>
+                        <th className="px-4 py-3 text-center">Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.products.map((product) => (
+                        <tr
+                          key={product.id}
+                          className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 transition"
+                          onClick={() =>
+                            (window.location.href = `/products/${product.id}`)
+                          }
+                        >
+                          <td className="px-4 py-3 font-semibold text-slate-900">
+                            {product.title}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {product.category}
+                          </td>
+                          <td className="px-4 py-3 font-bold text-slate-900">
+                            {product.price}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-bold ${
+                                product.inStock
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : "bg-red-50 text-red-700"
+                              }`}
+                            >
+                              {product.inStock ? "In stock" : "Out"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className="space-y-3 p-3 sm:hidden">
                     {data.products.map((product) => (
-                      <tr
+                      <motion.button
                         key={product.id}
-                        className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 transition"
+                        className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-100"
+                        whileHover={{ scale: 1.01 }}
                         onClick={() =>
                           (window.location.href = `/products/${product.id}`)
                         }
                       >
-                        <td className="px-4 py-3 font-semibold text-slate-900">
-                          {product.title}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {product.category}
-                        </td>
-                        <td className="px-4 py-3 font-bold text-slate-900">
-                          {product.price}
-                        </td>
-                        <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-semibold text-slate-900">
+                            {product.title}
+                          </p>
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                            {product.category}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-xs font-semibold text-slate-600">
+                          <span className="text-slate-900">{product.price}</span>
                           <span
-                            className={`rounded-full px-3 py-1 text-xs font-bold ${
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
                               product.inStock
                                 ? "bg-emerald-50 text-emerald-700"
                                 : "bg-red-50 text-red-700"
@@ -1636,46 +1887,20 @@ export default function Home() {
                           >
                             {product.inStock ? "In stock" : "Out"}
                           </span>
-                        </td>
-                      </tr>
+                        </div>
+                      </motion.button>
                     ))}
-                  </tbody>
-                </table>
-
-                <div className="space-y-3 p-3 sm:hidden">
-                  {data.products.map((product) => (
-                    <motion.button
-                      key={product.id}
-                      className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-100"
-                      whileHover={{ scale: 1.01 }}
-                      onClick={() =>
-                        (window.location.href = `/products/${product.id}`)
-                      }
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="font-semibold text-slate-900">
-                          {product.title}
-                        </p>
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">
-                          {product.category}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-xs font-semibold text-slate-600">
-                        <span className="text-slate-900">{product.price}</span>
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                            product.inStock
-                              ? "bg-emerald-50 text-emerald-700"
-                              : "bg-red-50 text-red-700"
-                          }`}
-                        >
-                          {product.inStock ? "In stock" : "Out"}
-                        </span>
-                      </div>
-                    </motion.button>
-                  ))}
+                  </div>
+                </>
+              ) : (
+                <div className="p-4">
+                  <EmptyState
+                    title="No products yet"
+                    detail="Add products to populate this list."
+                  />
                 </div>
-              </div>
+              )}
+            </div>
             </motion.div>
           )}
 
@@ -1729,15 +1954,27 @@ export default function Home() {
               <h2 className="text-lg font-bold text-slate-900">
                 Operational Health
               </h2>
-              <span className="text-xs font-semibold text-emerald-700">
+              <span className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                </span>
                 Live
               </span>
             </div>
             <div className="mt-4 space-y-4">
-              {data.lanes.map((lane) => (
+              {data.lanes.map((lane) => {
+                const labelMap: Record<string, string> = {
+                  Fulfillment: "Fleet Readiness",
+                  "Cleanliness QA": "Sanitation Cycle",
+                  "Driver Availability": "Dispatch Reliability",
+                  "Support SLA": "Customer Support Load",
+                };
+                const displayLabel = labelMap[lane.label] ?? lane.label;
+                return (
                 <div key={lane.label}>
                   <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-                    <span>{lane.label}</span>
+                    <span>{displayLabel}</span>
                     <span>{lane.value}%</span>
                   </div>
                   <div className="mt-1 h-2 rounded-full bg-slate-100">
@@ -1749,7 +1986,8 @@ export default function Home() {
                     />
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           </motion.div>
         </section>
@@ -1831,9 +2069,16 @@ export default function Home() {
               </span>
             </div>
             <div className="mt-3 space-y-3 text-sm">
-              {data.alerts.map((alert, idx) => (
-                <AlertItem key={idx} title={alert.title} tone={alert.tone} />
-              ))}
+              {data.alerts.length ? (
+                data.alerts.map((alert, idx) => (
+                  <AlertItem key={idx} title={alert.title} tone={alert.tone} />
+                ))
+              ) : (
+                <EmptyState
+                  title="No alerts right now"
+                  detail="All operational areas look healthy."
+                />
+              )}
             </div>
           </motion.div>
         </section>
@@ -2264,3 +2509,4 @@ function buildStatsFromOrders(orders: RawOrder[]) {
     },
   ];
 }
+
