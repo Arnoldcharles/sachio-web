@@ -19,6 +19,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
 import Image from "next/image";
+import { MarkerClusterer } from "@googlemaps/markerclusterer";
+
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
 
 type Stat = {
   label: string;
@@ -84,6 +91,14 @@ type DashboardData = {
   revenueTrend: TrendPoint[];
 };
 type RevenueTotals = { daily: number; monthly: number; yearly: number };
+type DriverInfo = { id: string; name: string; email?: string | null; active?: boolean };
+type DriverLocation = {
+  lat: number;
+  lng: number;
+  speed?: number | null;
+  heading?: number | null;
+  updatedAt?: Date | null;
+};
 
 const trendOptions = [
   { label: "Last 7 days", days: 7 },
@@ -315,12 +330,22 @@ export default function Home() {
   const rawOrdersRef = useRef<RawOrder[]>([]);
   const productsRef = useRef<Product[]>([]);
   const alertsRef = useRef<Alert[]>([]);
+  const [drivers, setDrivers] = useState<DriverInfo[]>([]);
+  const [driverLocations, setDriverLocations] = useState<Record<string, DriverLocation>>({});
+  const [mapReady, setMapReady] = useState(false);
+  const [mapStyleMode, setMapStyleMode] = useState<"light" | "dark">("light");
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const clustererRef = useRef<MarkerClusterer | null>(null);
+  const markersRef = useRef<any[]>([]);
   const [revenueTotals, setRevenueTotals] = useState<RevenueTotals>({
     daily: 0,
     monthly: 0,
     yearly: 0,
   });
   const [showRevenueDetails, setShowRevenueDetails] = useState(false);
+  const mapsKeyMissing = !process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const placesKeyMissing = !process.env.NEXT_PUBLIC_GOOGLE_PLACES_API_KEY;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -361,6 +386,87 @@ export default function Home() {
     );
     document.body.classList.toggle("dashboard-theme-dark", theme === "dark");
   }, [theme]);
+
+  useEffect(() => {
+    setMapStyleMode(theme === "dark" ? "dark" : "light");
+  }, [theme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (mapsKeyMissing) return;
+    let cancelled = false;
+    const load = async () => {
+      if (window.google?.maps) {
+        if (!cancelled) setMapReady(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`;
+      script.async = true;
+      script.onload = () => {
+        if (!cancelled) setMapReady(true);
+      };
+      script.onerror = () => {
+        if (!cancelled) setMapReady(false);
+      };
+      document.head.appendChild(script);
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [mapsKeyMissing]);
+
+  useEffect(() => {
+    if (!mapReady || !mapContainerRef.current) return;
+    if (mapInstanceRef.current) return;
+    const map = new window.google.maps.Map(mapContainerRef.current, {
+      center: { lat: 6.5244, lng: 3.3792 },
+      zoom: 11,
+      styles: mapStyleMode === "dark" ? darkMapStyle : lightMapStyle,
+      disableDefaultUI: true,
+      zoomControl: true,
+    });
+    mapInstanceRef.current = map;
+    clustererRef.current = new MarkerClusterer({ map, markers: [] });
+  }, [mapReady, mapStyleMode]);
+
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    mapInstanceRef.current.setOptions({
+      styles: mapStyleMode === "dark" ? darkMapStyle : lightMapStyle,
+    });
+  }, [mapStyleMode]);
+
+  useEffect(() => {
+    if (!mapInstanceRef.current || !window.google?.maps) return;
+    if (markersRef.current.length) {
+      markersRef.current.forEach((marker) => marker.setMap(null));
+      markersRef.current = [];
+    }
+    if (clustererRef.current) {
+      clustererRef.current.clearMarkers();
+    }
+    const activeMarkers: any[] = [];
+    drivers.forEach((driver) => {
+      const location = driverLocations[driver.id];
+      if (!location) return;
+      const marker = new window.google.maps.Marker({
+        position: { lat: location.lat, lng: location.lng },
+        title: driver.name,
+        label: driver.name ? driver.name.charAt(0).toUpperCase() : "D",
+      });
+      activeMarkers.push(marker);
+    });
+    markersRef.current = activeMarkers;
+    if (clustererRef.current) {
+      clustererRef.current.addMarkers(activeMarkers);
+    }
+    if (activeMarkers.length === 1) {
+      mapInstanceRef.current.setCenter(activeMarkers[0].getPosition());
+      mapInstanceRef.current.setZoom(13);
+    }
+  }, [drivers, driverLocations]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -919,6 +1025,78 @@ export default function Home() {
     };
   }, [trendDays]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const driversQuery = query(
+      collection(db, "users"),
+      where("isDriver", "==", true)
+    );
+    const unsubscribeDrivers = onSnapshot(
+      driversQuery,
+      (snapshot) => {
+        const rows = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as any;
+          return {
+            id: docSnap.id,
+            name: data.name || data.fullName || data.email || docSnap.id,
+            email: data.email ?? null,
+            active: Boolean(data.isDriverActive),
+          } as DriverInfo;
+        });
+        setDrivers(rows);
+      },
+      () => setDrivers([])
+    );
+
+    const locationsQuery = collection(db, "driverLocations");
+    const unsubscribeLocations = onSnapshot(
+      locationsQuery,
+      (snapshot) => {
+        const locations: Record<string, DriverLocation> = {};
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as any;
+          if (typeof data?.lat !== "number" || typeof data?.lng !== "number") return;
+          const updatedAt = data?.updatedAt?.toDate
+            ? data.updatedAt.toDate()
+            : typeof data?.updatedAt?.seconds === "number"
+            ? new Date(data.updatedAt.seconds * 1000)
+            : typeof data?.updatedAt === "number"
+            ? new Date(data.updatedAt)
+            : null;
+          locations[docSnap.id] = {
+            lat: data.lat,
+            lng: data.lng,
+            speed: typeof data?.speed === "number" ? data.speed : null,
+            heading: typeof data?.heading === "number" ? data.heading : null,
+            updatedAt,
+          };
+        });
+        setDriverLocations(locations);
+      },
+      () => setDriverLocations({})
+    );
+
+    return () => {
+      unsubscribeDrivers();
+      unsubscribeLocations();
+    };
+  }, []);
+
+  const driverCards = useMemo(() => {
+    return drivers.map((driver) => {
+      const location = driverLocations[driver.id];
+      const updatedAt = location?.updatedAt ?? null;
+      const ageMs = updatedAt ? Date.now() - updatedAt.getTime() : Infinity;
+      const status =
+        ageMs > 5 * 60 * 1000
+          ? "Offline"
+          : location?.speed != null && location.speed < 0.5
+          ? "Idle"
+          : "Active";
+      return { driver, status, updatedAt };
+    });
+  }, [drivers, driverLocations]);
+
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-900">
       <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-4 py-6 sm:px-6 lg:gap-6 lg:px-8">
@@ -937,6 +1115,11 @@ export default function Home() {
                 }}
               />
             </div>
+          </div>
+        )}
+        {(mapsKeyMissing || placesKeyMissing) && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800 shadow-sm">
+            Google Maps keys missing. Add `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`{placesKeyMissing ? " and `NEXT_PUBLIC_GOOGLE_PLACES_API_KEY`" : ""} to `.env.local` (and Vercel envs) to enable map features.
           </div>
         )}
         <motion.header
@@ -1782,6 +1965,112 @@ export default function Home() {
           </motion.div>
         </section>
 
+        <section className="hidden lg:block">
+          <motion.div
+            className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            whileHover={{ y: -2, boxShadow: "0px 10px 35px rgba(15,23,42,0.1)" }}
+            transition={{ duration: 0.4 }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Live tracking
+                </p>
+                <h2 className="text-lg font-bold text-slate-900">Driver map</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={() =>
+                    setMapStyleMode((prev) => (prev === "dark" ? "light" : "dark"))
+                  }
+                >
+                  {mapStyleMode === "dark" ? "Light map" : "Dark map"}
+                </button>
+                <button
+                  className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700"
+                  onClick={() => {
+                    const first = Object.values(driverLocations)[0];
+                    if (!first || !mapInstanceRef.current) return;
+                    mapInstanceRef.current.setCenter({ lat: first.lat, lng: first.lng });
+                    mapInstanceRef.current.setZoom(13);
+                  }}
+                >
+                  Center map
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              <div className="lg:col-span-2">
+                <div className="h-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                  {mapsKeyMissing ? (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                      Add Google Maps API key to enable the map.
+                    </div>
+                  ) : mapReady ? (
+                    <div ref={mapContainerRef} className="h-full w-full" />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                      Loading map...
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Driver status
+                  </p>
+                  <p className="mt-2 text-sm text-slate-600">
+                    {drivers.length} drivers assigned
+                  </p>
+                </div>
+                {driverCards.length ? (
+                  driverCards.map(({ driver, status, updatedAt }) => (
+                    <div
+                      key={driver.id}
+                      className="rounded-2xl border border-slate-200 bg-white p-4"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">
+                            {driver.name}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {driver.email || "No email"}
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                            status === "Active"
+                              ? "bg-emerald-50 text-emerald-700"
+                              : status === "Idle"
+                              ? "bg-amber-50 text-amber-700"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {status}
+                        </span>
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        Last update: {updatedAt ? updatedAt.toLocaleTimeString() : "N/A"}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <EmptyState
+                    title="No driver locations"
+                    detail="Assign drivers and enable tracking to see them here."
+                  />
+                )}
+              </div>
+            </div>
+          </motion.div>
+        </section>
+
         <section className="hidden gap-4 lg:grid lg:grid-cols-3">
           {role === "staff" ? null : (
             <motion.div
@@ -2352,6 +2641,18 @@ function buildAlertsFromData(orders: RawOrder[], products: Product[]) {
   }
   return alerts;
 }
+
+const lightMapStyle: any[] = [];
+
+const darkMapStyle = [
+  { elementType: "geometry", stylers: [{ color: "#1f2937" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#111827" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#9ca3af" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#374151" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1f2937" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0f172a" }] },
+  { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#9ca3af" }] },
+];
 
 function buildRevenueTrend(orders: RawOrder[], windowDays = 7): TrendPoint[] {
   const today = new Date();

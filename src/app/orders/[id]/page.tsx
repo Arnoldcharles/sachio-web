@@ -1,11 +1,17 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 import Link from "next/link";
 import { OrderStatus, StatusPill } from "../../page";
+
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
 
 const statusOptions = ["processing", "dispatched", "in_transit", "delivered", "completed", "cancelled_by_admin", "waiting_admin_price", "price_set", "paid"] as const;
 
@@ -17,10 +23,27 @@ export default function OrderDetailPage() {
   const [status, setStatus] = useState<string>("");
   const [priceInput, setPriceInput] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [drivers, setDrivers] = useState<{ id: string; label: string; email?: string }[]>([]);
+  const [drivers, setDrivers] = useState<{ id: string; label: string; email?: string; active?: boolean }[]>([]);
   const [driverId, setDriverId] = useState<string>("");
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [driverLocationUpdatedAt, setDriverLocationUpdatedAt] = useState<Date | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapStyleMode, setMapStyleMode] = useState<"light" | "dark">("light");
+  const [routeInfo, setRouteInfo] = useState<{ distanceText: string; durationText: string } | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const directionsRendererRef = useRef<any>(null);
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const mapClickListenerRef = useRef<any>(null);
+  const geocoderRef = useRef<any>(null);
+  const [destinationDraft, setDestinationDraft] = useState<{
+    address: string;
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const [destinationSaving, setDestinationSaving] = useState(false);
+  const [destinationToast, setDestinationToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -62,6 +85,7 @@ export default function OrderDetailPage() {
               id: docSnap.id,
               label: data.name || data.fullName || data.email || docSnap.id,
               email: data.email,
+              active: Boolean(data.isDriverActive),
             };
           })
         );
@@ -72,6 +96,43 @@ export default function OrderDetailPage() {
     loadDrivers();
     return () => {
       mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem("sachio_dashboard_theme");
+    if (stored === "dark" || stored === "light") {
+      setMapStyleMode(stored);
+      return;
+    }
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    setMapStyleMode(prefersDark ? "dark" : "light");
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY) return;
+    let cancelled = false;
+    const load = async () => {
+      if (window.google?.maps) {
+        if (!cancelled) setMapReady(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`;
+      script.async = true;
+      script.onload = () => {
+        if (!cancelled) setMapReady(true);
+      };
+      script.onerror = () => {
+        if (!cancelled) setMapReady(false);
+      };
+      document.head.appendChild(script);
+    };
+    load();
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -113,6 +174,253 @@ export default function OrderDetailPage() {
     );
     return () => unsub();
   }, [driverId]);
+
+  const destination = useMemo(() => {
+    const lat =
+      order?.destinationLat ??
+      order?.locationLat ??
+      order?.deliveryLat ??
+      order?.lat ??
+      null;
+    const lng =
+      order?.destinationLng ??
+      order?.locationLng ??
+      order?.deliveryLng ??
+      order?.lng ??
+      null;
+    if (typeof lat === "number" && typeof lng === "number") {
+      return { lat, lng };
+    }
+    return null;
+  }, [order]);
+
+  const activeDestination = destinationDraft
+    ? { lat: destinationDraft.lat, lng: destinationDraft.lng }
+    : destination;
+
+  const driverStatus = useMemo(() => {
+    const driverMeta = drivers.find((driver) => driver.id === driverId);
+    if (driverMeta?.active) return "Active";
+    if (!driverLocationUpdatedAt) return "Offline";
+    const ageMs = Date.now() - driverLocationUpdatedAt.getTime();
+    if (ageMs > 5 * 60 * 1000) return "Offline";
+    return "Active";
+  }, [driverLocationUpdatedAt, drivers, driverId]);
+
+  const driverMarkerRef = useRef<any>(null);
+  const destinationMarkerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!mapReady || !mapContainerRef.current) return;
+    if (mapInstanceRef.current) return;
+    mapInstanceRef.current = new window.google.maps.Map(mapContainerRef.current, {
+      center: { lat: 6.5244, lng: 3.3792 },
+      zoom: 12,
+      styles: mapStyleMode === "dark" ? darkMapStyle : lightMapStyle,
+      disableDefaultUI: true,
+      zoomControl: true,
+    });
+    geocoderRef.current = new window.google.maps.Geocoder();
+    directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
+      suppressMarkers: true,
+      polylineOptions: {
+        strokeColor: "#16A34A",
+        strokeWeight: 4,
+      },
+      map: mapInstanceRef.current,
+    });
+  }, [mapReady, mapStyleMode]);
+
+  useEffect(() => {
+    if (!mapReady || !mapInstanceRef.current || !window.google?.maps) return;
+    const map = mapInstanceRef.current;
+    if (mapClickListenerRef.current) {
+      mapClickListenerRef.current.remove();
+    }
+    mapClickListenerRef.current = map.addListener("click", (event: any) => {
+      const lat = event?.latLng?.lat?.();
+      const lng = event?.latLng?.lng?.();
+      if (typeof lat !== "number" || typeof lng !== "number") return;
+      if (geocoderRef.current) {
+        geocoderRef.current.geocode(
+          { location: { lat, lng } },
+          (results: any, status: string) => {
+            const address =
+              status === "OK" && results?.[0]?.formatted_address
+                ? results[0].formatted_address
+                : "Pinned destination";
+            setDestinationDraft({ address, lat, lng });
+          }
+        );
+      } else {
+        setDestinationDraft({ address: "Pinned destination", lat, lng });
+      }
+    });
+    return () => {
+      if (mapClickListenerRef.current) {
+        mapClickListenerRef.current.remove();
+      }
+    };
+  }, [mapReady]);
+
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    mapInstanceRef.current.setOptions({
+      styles: mapStyleMode === "dark" ? darkMapStyle : lightMapStyle,
+    });
+  }, [mapStyleMode]);
+
+  useEffect(() => {
+    if (!mapReady || !mapInstanceRef.current || !driverLocation) return;
+    if (!window.google?.maps) return;
+    const map = mapInstanceRef.current;
+    if (!driverMarkerRef.current) {
+      driverMarkerRef.current = new window.google.maps.Marker({
+        map,
+        title: order?.driverName || "Driver",
+      });
+    }
+    driverMarkerRef.current.setPosition({
+      lat: driverLocation.lat,
+      lng: driverLocation.lng,
+    });
+    if (activeDestination) {
+      if (!destinationMarkerRef.current) {
+        destinationMarkerRef.current = new window.google.maps.Marker({
+          map,
+          title: "Destination",
+          draggable: true,
+        });
+        destinationMarkerRef.current.addListener("dragend", (event: any) => {
+          const lat = event?.latLng?.lat?.();
+          const lng = event?.latLng?.lng?.();
+          if (typeof lat !== "number" || typeof lng !== "number") return;
+          const applyAndSave = (address: string) => {
+            setDestinationDraft({ address, lat, lng });
+            setTimeout(() => saveDestination(), 0);
+          };
+          if (geocoderRef.current) {
+            geocoderRef.current.geocode(
+              { location: { lat, lng } },
+              (results: any, status: string) => {
+                const address =
+                  status === "OK" && results?.[0]?.formatted_address
+                    ? results[0].formatted_address
+                    : "Pinned destination";
+                applyAndSave(address);
+              }
+            );
+          } else {
+            applyAndSave("Pinned destination");
+          }
+        });
+      }
+      destinationMarkerRef.current.setPosition({
+        lat: activeDestination.lat,
+        lng: activeDestination.lng,
+      });
+      const service = new window.google.maps.DirectionsService();
+      service.route(
+        {
+          origin: { lat: driverLocation.lat, lng: driverLocation.lng },
+          destination: { lat: activeDestination.lat, lng: activeDestination.lng },
+          travelMode: window.google.maps.TravelMode.DRIVING,
+        },
+        (result: any, status: string) => {
+          if (status === "OK" && result) {
+            directionsRendererRef.current?.setDirections(result);
+            const leg = result.routes?.[0]?.legs?.[0];
+            if (leg?.distance?.text && leg?.duration?.text) {
+              setRouteInfo({ distanceText: leg.distance.text, durationText: leg.duration.text });
+            }
+          } else {
+            directionsRendererRef.current?.setDirections({ routes: [] });
+            setRouteInfo(null);
+          }
+        }
+      );
+    } else {
+      directionsRendererRef.current?.setDirections({ routes: [] });
+      setRouteInfo(null);
+    }
+  }, [mapReady, driverLocation, activeDestination, order?.driverName]);
+
+  const applyTypedAddress = () => {
+    if (!geocoderRef.current || !addressInputRef.current?.value) return;
+    const address = addressInputRef.current.value;
+    geocoderRef.current.geocode({ address }, (results: any, status: string) => {
+      if (status !== "OK" || !results?.[0]) {
+        alert("Could not locate that address. Try dropping a pin on the map.");
+        return;
+      }
+      const location = results[0].geometry?.location;
+      if (!location) return;
+      setDestinationDraft({
+        address: results[0].formatted_address || address,
+        lat: location.lat(),
+        lng: location.lng(),
+      });
+    });
+  };
+
+  const saveDestination = async () => {
+    if (!id) return;
+    if (!destinationDraft) {
+      applyTypedAddress();
+      return;
+    }
+    setDestinationSaving(true);
+    try {
+      await updateDoc(doc(db, "orders", id), {
+        destinationLat: destinationDraft.lat,
+        destinationLng: destinationDraft.lng,
+        destinationAddress: destinationDraft.address,
+        destinationSetAt: serverTimestamp(),
+      });
+      setOrder((prev: any) => ({
+        ...prev,
+        destinationLat: destinationDraft.lat,
+        destinationLng: destinationDraft.lng,
+        destinationAddress: destinationDraft.address,
+      }));
+      setDestinationDraft(null);
+      if (addressInputRef.current) {
+        addressInputRef.current.value = "";
+      }
+      setDestinationToast("Destination saved");
+      setTimeout(() => setDestinationToast(null), 2200);
+    } catch {
+      alert("Could not save destination.");
+    } finally {
+      setDestinationSaving(false);
+    }
+  };
+
+  const resetDestination = async () => {
+    if (!id) return;
+    setDestinationSaving(true);
+    try {
+      await updateDoc(doc(db, "orders", id), {
+        destinationLat: null,
+        destinationLng: null,
+        destinationAddress: null,
+      });
+      setOrder((prev: any) => ({
+        ...prev,
+        destinationLat: null,
+        destinationLng: null,
+        destinationAddress: null,
+      }));
+      setDestinationDraft(null);
+      if (addressInputRef.current) {
+        addressInputRef.current.value = "";
+      }
+    } catch {
+      alert("Could not reset destination.");
+    } finally {
+      setDestinationSaving(false);
+    }
+  };
 
   const canEditStatus =
     order &&
@@ -355,6 +663,76 @@ export default function OrderDetailPage() {
                       {order.driverName}
                     </span>
                   ) : null}
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      driverStatus === "Active"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {driverStatus}
+                  </span>
+                  <button
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    onClick={() =>
+                      setMapStyleMode((prev) => (prev === "dark" ? "light" : "dark"))
+                    }
+                    type="button"
+                  >
+                    {mapStyleMode === "dark" ? "Light map" : "Dark map"}
+                  </button>
+                    <button
+                      className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      onClick={() => setShowResetConfirm(true)}
+                      type="button"
+                      disabled={destinationSaving || (!order?.destinationLat && !order?.destinationLng && !destinationDraft)}
+                    >
+                      Reset destination
+                    </button>
+                </div>
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Destination</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      ref={addressInputRef}
+                      className="w-full flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+                      placeholder="Type destination address"
+                      type="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
+                    />
+                    <button
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+                      onClick={applyTypedAddress}
+                      disabled={!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || destinationSaving}
+                      type="button"
+                    >
+                      Use typed address
+                    </button>
+                    <button
+                      className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
+                      onClick={saveDestination}
+                      disabled={!destinationDraft || destinationSaving}
+                      type="button"
+                    >
+                      {destinationSaving ? "Saving..." : "Save"}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+                      ? "Add `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to enable address search."
+                      : "Type an address and click Save, or tap the map to drop a pin."}
+                  </p>
+                  {destinationDraft ? (
+                    <div className="mt-2 text-xs font-semibold text-slate-700">
+                      Selected: {destinationDraft.address}
+                    </div>
+                  ) : order?.destinationAddress ? (
+                    <div className="mt-2 text-xs font-semibold text-slate-700">
+                      Current: {order.destinationAddress}
+                    </div>
+                  ) : null}
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
                   Drivers share live location from the mobile app once marked as a driver.
@@ -369,15 +747,30 @@ export default function OrderDetailPage() {
                       Location stale
                     </span>
                   ) : null}
+                  {routeInfo ? (
+                    <>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                        {routeInfo.distanceText}
+                      </span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                        ETA {routeInfo.durationText}
+                      </span>
+                    </>
+                  ) : null}
                 </div>
                 <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
-                  {driverLocation ? (
-                    <iframe
-                      title="Driver location"
-                      className="h-[260px] w-full"
-                      src={`https://www.google.com/maps?q=${driverLocation.lat},${driverLocation.lng}&z=15&output=embed`}
-                      loading="lazy"
-                    />
+                  {!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? (
+                    <div className="flex h-[260px] items-center justify-center text-sm text-slate-500">
+                      Add `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to enable the live map.
+                    </div>
+                  ) : driverLocation ? (
+                    mapReady ? (
+                      <div className="h-[260px] w-full" ref={mapContainerRef} />
+                    ) : (
+                      <div className="flex h-[260px] items-center justify-center text-sm text-slate-500">
+                        Loading map...
+                      </div>
+                    )
                   ) : (
                     <div className="flex h-[260px] items-center justify-center text-sm text-slate-500">
                       {driverId ? "Waiting for driver location..." : "Assign a driver to see live tracking."}
@@ -416,6 +809,41 @@ export default function OrderDetailPage() {
                   <p className="text-sm text-slate-600">Status updates are applied automatically when price is set or payment completes.</p>
                 </div>
               )}
+          {showResetConfirm ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+                  <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+                    <h3 className="text-lg font-bold text-slate-900">Reset destination?</h3>
+                    <p className="mt-2 text-sm text-slate-600">
+                      This clears the destination and removes the current route from the map.
+                    </p>
+                    <div className="mt-5 flex justify-end gap-3">
+                      <button
+                        className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        onClick={() => setShowResetConfirm(false)}
+                        type="button"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                        onClick={async () => {
+                          await resetDestination();
+                          setShowResetConfirm(false);
+                        }}
+                        disabled={destinationSaving}
+                        type="button"
+                      >
+                        {destinationSaving ? "Resetting..." : "Reset"}
+                      </button>
+                    </div>
+                  </div>
+            </div>
+          ) : null}
+          {destinationToast ? (
+            <div className="fixed bottom-6 right-6 z-50 rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-lg">
+              {destinationToast}
+            </div>
+          ) : null}
 
               {order?.type === "rent" && !String(order.paymentStatus || order.status || "").toLowerCase().includes("paid") ? (
                 <div>
@@ -451,3 +879,15 @@ export default function OrderDetailPage() {
     </div>
   );
 }
+
+const lightMapStyle: any[] = [];
+
+const darkMapStyle = [
+  { elementType: "geometry", stylers: [{ color: "#1f2937" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#111827" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#9ca3af" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#374151" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1f2937" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0f172a" }] },
+  { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#9ca3af" }] },
+];
