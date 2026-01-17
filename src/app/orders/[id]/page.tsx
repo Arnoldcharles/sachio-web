@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { doc, getDoc, updateDoc, serverTimestamp, Timestamp } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 import Link from "next/link";
 import { OrderStatus, StatusPill } from "../../page";
@@ -17,6 +17,10 @@ export default function OrderDetailPage() {
   const [status, setStatus] = useState<string>("");
   const [priceInput, setPriceInput] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [drivers, setDrivers] = useState<{ id: string; label: string; email?: string }[]>([]);
+  const [driverId, setDriverId] = useState<string>("");
+  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [driverLocationUpdatedAt, setDriverLocationUpdatedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -30,6 +34,7 @@ export default function OrderDetailPage() {
           setOrder(data);
           setStatus(data.status || "processing");
           setPriceInput(data.amount != null ? String(data.amount) : data.price != null ? String(data.price) : "");
+          setDriverId(data.driverId || "");
         } else {
           setError("Order not found.");
         }
@@ -43,6 +48,71 @@ export default function OrderDetailPage() {
       mounted = false;
     };
   }, [id]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadDrivers() {
+      try {
+        const snap = await getDocs(query(collection(db, "users"), where("isDriver", "==", true)));
+        if (!mounted) return;
+        setDrivers(
+          snap.docs.map((docSnap) => {
+            const data = docSnap.data() as any;
+            return {
+              id: docSnap.id,
+              label: data.name || data.fullName || data.email || docSnap.id,
+              email: data.email,
+            };
+          })
+        );
+      } catch {
+        // ignore driver load errors
+      }
+    }
+    loadDrivers();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!driverId) {
+      setDriverLocation(null);
+      setDriverLocationUpdatedAt(null);
+      return;
+    }
+    const locRef = doc(db, "driverLocations", driverId);
+    const unsub = onSnapshot(
+      locRef,
+      (snap) => {
+        if (!snap.exists()) {
+          setDriverLocation(null);
+          return;
+        }
+        const data = snap.data() as any;
+        if (typeof data?.lat === "number" && typeof data?.lng === "number") {
+          setDriverLocation({ lat: data.lat, lng: data.lng });
+        } else {
+          setDriverLocation(null);
+        }
+        const updatedAt = data?.updatedAt;
+        if (updatedAt?.toDate) {
+          setDriverLocationUpdatedAt(updatedAt.toDate());
+        } else if (typeof updatedAt?.seconds === "number") {
+          setDriverLocationUpdatedAt(new Date(updatedAt.seconds * 1000));
+        } else if (typeof updatedAt === "number") {
+          setDriverLocationUpdatedAt(new Date(updatedAt));
+        } else {
+          setDriverLocationUpdatedAt(null);
+        }
+      },
+      () => {
+        setDriverLocation(null);
+        setDriverLocationUpdatedAt(null);
+      }
+    );
+    return () => unsub();
+  }, [driverId]);
 
   const canEditStatus =
     order &&
@@ -96,6 +166,33 @@ export default function OrderDetailPage() {
       setSaving(false);
     }
   };
+
+  const assignDriver = async (nextId: string) => {
+    if (!id) return;
+    setSaving(true);
+    try {
+      const selected = drivers.find((d) => d.id === nextId);
+      await updateDoc(doc(db, "orders", id), {
+        driverId: nextId || null,
+        driverName: selected?.label || null,
+        driverEmail: selected?.email || null,
+      });
+      setDriverId(nextId);
+      setOrder((prev: any) => ({
+        ...prev,
+        driverId: nextId || null,
+        driverName: selected?.label || null,
+        driverEmail: selected?.email || null,
+      }));
+    } catch {
+      alert("Could not assign driver");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isDriverLocationStale =
+    driverLocationUpdatedAt ? Date.now() - driverLocationUpdatedAt.getTime() > 5 * 60 * 1000 : false;
 
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-900">
@@ -234,6 +331,58 @@ export default function OrderDetailPage() {
                       <p className="text-base font-bold text-slate-900">{order.referral}</p>
                     </div>
                   ) : null}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-100 bg-white p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Driver assignment</p>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <select
+                    value={driverId}
+                    onChange={(e) => assignDriver(e.target.value)}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
+                    disabled={saving}
+                  >
+                    <option value="">No driver assigned</option>
+                    {drivers.map((driver) => (
+                      <option key={driver.id} value={driver.id}>
+                        {driver.label}
+                      </option>
+                    ))}
+                  </select>
+                  {order?.driverName ? (
+                    <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+                      {order.driverName}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Drivers share live location from the mobile app once marked as a driver.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <span>
+                    Last update:{" "}
+                    {driverLocationUpdatedAt ? driverLocationUpdatedAt.toLocaleString() : "Not available"}
+                  </span>
+                  {isDriverLocationStale ? (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                      Location stale
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                  {driverLocation ? (
+                    <iframe
+                      title="Driver location"
+                      className="h-[260px] w-full"
+                      src={`https://www.google.com/maps?q=${driverLocation.lat},${driverLocation.lng}&z=15&output=embed`}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="flex h-[260px] items-center justify-center text-sm text-slate-500">
+                      {driverId ? "Waiting for driver location..." : "Assign a driver to see live tracking."}
+                    </div>
+                  )}
                 </div>
               </div>
 

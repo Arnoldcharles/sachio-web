@@ -12,6 +12,8 @@ type UserRow = {
   phone?: string | null;
   uid?: string | null;
   blocked?: boolean;
+  isDriver?: boolean;
+  isDriverActive?: boolean;
 };
 
 export default function UsersPage() {
@@ -50,6 +52,8 @@ export default function UsersPage() {
             name: data.name ?? data.fullName ?? null,
             phone: data.phone ?? data.phoneNumber ?? null,
             blocked: Boolean(data.blocked),
+            isDriver: Boolean(data.isDriver),
+            isDriverActive: Boolean(data.isDriverActive),
           };
         });
         setUsers(rows);
@@ -76,6 +80,37 @@ export default function UsersPage() {
     } catch (err) {
       console.warn("Failed to update user block status", err);
       setError("Could not update user right now.");
+    } finally {
+      setBlocking((prev) => ({ ...prev, [user.id]: false }));
+    }
+  };
+
+  const handleDriverToggle = async (user: UserRow) => {
+    if (role !== "superadmin") return;
+    setBlocking((prev) => ({ ...prev, [user.id]: true }));
+    try {
+      const nextDriver = !user.isDriver;
+      await setDoc(doc(db, "users", user.id), { isDriver: nextDriver }, { merge: true });
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, isDriver: nextDriver } : u)));
+    } catch (err) {
+      console.warn("Failed to update driver status", err);
+      setError("Could not update driver status right now.");
+    } finally {
+      setBlocking((prev) => ({ ...prev, [user.id]: false }));
+    }
+  };
+
+  const handleDriverActiveToggle = async (user: UserRow) => {
+    if (role !== "superadmin") return;
+    if (!user.isDriver) return;
+    setBlocking((prev) => ({ ...prev, [user.id]: true }));
+    try {
+      const nextActive = !user.isDriverActive;
+      await setDoc(doc(db, "users", user.id), { isDriverActive: nextActive }, { merge: true });
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, isDriverActive: nextActive } : u)));
+    } catch (err) {
+      console.warn("Failed to update driver active status", err);
+      setError("Could not update driver status right now.");
     } finally {
       setBlocking((prev) => ({ ...prev, [user.id]: false }));
     }
@@ -117,6 +152,7 @@ export default function UsersPage() {
                   <th className="px-4 py-3">Email</th>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Phone</th>
+                  <th className="px-4 py-3">Driver</th>
                   <th className="px-4 py-3">Status</th>
                   {role === "superadmin" ? <th className="px-4 py-3 text-right">Action</th> : null}
                 </tr>
@@ -124,23 +160,36 @@ export default function UsersPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={role === "superadmin" ? 6 : 5} className="px-4 py-4 text-center text-sm text-slate-600">
+                    <td colSpan={role === "superadmin" ? 7 : 6} className="px-4 py-4 text-center text-sm text-slate-600">
                       Loading users...
                     </td>
                   </tr>
                 ) : users.length === 0 ? (
                   <tr>
-                    <td colSpan={role === "superadmin" ? 6 : 5} className="px-4 py-4 text-center text-sm text-slate-600">
+                    <td colSpan={role === "superadmin" ? 7 : 6} className="px-4 py-4 text-center text-sm text-slate-600">
                       No users found.
                     </td>
                   </tr>
                 ) : (
                   users.map((user) => (
-                    <tr key={user.id} className="border-t border-slate-100 hover:bg-slate-50">
+                                        <tr key={user.id} className="border-t border-slate-100 hover:bg-slate-50">
                       <td className="px-4 py-3 font-semibold text-slate-900">{user.uid || user.id}</td>
                       <td className="px-4 py-3 text-slate-700">{user.email}</td>
-                      <td className="px-4 py-3 text-slate-700">{user.name || "—"}</td>
-                      <td className="px-4 py-3 text-slate-700">{user.phone || "—"}</td>
+                      <td className="px-4 py-3 text-slate-700">{user.name || "-"}</td>
+                      <td className="px-4 py-3 text-slate-700">{user.phone || "-"}</td>
+                      <td className="px-4 py-3 text-slate-700">
+  <span
+    className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+      user.isDriver
+        ? user.isDriverActive
+          ? "bg-emerald-50 text-emerald-700"
+          : "bg-amber-50 text-amber-700"
+        : "bg-slate-100 text-slate-600"
+    }`}
+  >
+    {user.isDriver ? (user.isDriverActive ? "Active" : "Inactive") : "No"}
+  </span>
+</td>
                       <td className="px-4 py-3 text-slate-700">
                         <span
                           className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
@@ -152,21 +201,49 @@ export default function UsersPage() {
                       </td>
                       {role === "superadmin" ? (
                         <td className="px-4 py-3 text-right">
-                          <button
-                            className={`rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm ring-1 disabled:opacity-60 ${
-                              user.blocked
-                                ? "bg-white text-emerald-700 ring-emerald-200 hover:bg-emerald-50"
-                                : "bg-white text-red-700 ring-red-200 hover:bg-red-50"
-                            }`}
-                            disabled={blocking[user.id]}
-                            onClick={() => handleBlock(user)}
-                          >
-                            {blocking[user.id]
-                              ? "Updating..."
-                              : user.blocked
-                              ? "Unblock"
-                              : "Block"}
-                          </button>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              className={`rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm ring-1 disabled:opacity-60 ${
+                                user.isDriver
+                                  ? "bg-white text-indigo-700 ring-indigo-200 hover:bg-indigo-50"
+                                  : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+                              }`}
+                              disabled={blocking[user.id]}
+                              onClick={() => handleDriverToggle(user)}
+                            >
+                              {blocking[user.id] ? "Updating..." : user.isDriver ? "Remove driver" : "Make driver"}
+                            </button>
+                            <button
+                              className={`rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm ring-1 disabled:opacity-60 ${
+                                user.isDriverActive
+                                  ? "bg-white text-amber-700 ring-amber-200 hover:bg-amber-50"
+                                  : "bg-white text-emerald-700 ring-emerald-200 hover:bg-emerald-50"
+                              }`}
+                              disabled={blocking[user.id] || !user.isDriver}
+                              onClick={() => handleDriverActiveToggle(user)}
+                            >
+                              {blocking[user.id]
+                                ? "Updating..."
+                                : user.isDriverActive
+                                ? "Set inactive"
+                                : "Set active"}
+                            </button>
+                            <button
+                              className={`rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm ring-1 disabled:opacity-60 ${
+                                user.blocked
+                                  ? "bg-white text-emerald-700 ring-emerald-200 hover:bg-emerald-50"
+                                  : "bg-white text-red-700 ring-red-200 hover:bg-red-50"
+                              }`}
+                              disabled={blocking[user.id]}
+                              onClick={() => handleBlock(user)}
+                            >
+                              {blocking[user.id]
+                                ? "Updating..."
+                                : user.blocked
+                                ? "Unblock"
+                                : "Block"}
+                            </button>
+                          </div>
                         </td>
                       ) : null}
                     </tr>
