@@ -35,6 +35,7 @@ export default function OrderDetailPage() {
   const mapInstanceRef = useRef<any>(null);
   const directionsRendererRef = useRef<any>(null);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const autocompleteRef = useRef<any>(null);
   const mapClickListenerRef = useRef<any>(null);
   const geocoderRef = useRef<any>(null);
   const [destinationDraft, setDestinationDraft] = useState<{
@@ -230,6 +231,30 @@ export default function OrderDetailPage() {
       map: mapInstanceRef.current,
     });
   }, [mapReady, mapStyleMode]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    if (!addressInputRef.current) return;
+    if (!window.google?.maps?.places) return;
+    if (autocompleteRef.current) return;
+    const autocomplete = new window.google.maps.places.Autocomplete(addressInputRef.current, {
+      fields: ["geometry", "formatted_address"],
+      types: ["geocode"],
+    });
+    autocomplete.addListener("place_changed", () => {
+      const place = autocomplete.getPlace();
+      const location = place?.geometry?.location;
+      if (!location) return;
+      const address =
+        place?.formatted_address || addressInputRef.current?.value || "Destination";
+      setDestinationDraft({
+        address,
+        lat: location.lat(),
+        lng: location.lng(),
+      });
+    });
+    autocompleteRef.current = autocomplete;
+  }, [mapReady]);
 
   useEffect(() => {
     if (!mapReady || !mapInstanceRef.current || !window.google?.maps) return;
