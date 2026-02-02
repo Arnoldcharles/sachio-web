@@ -2,17 +2,16 @@ import { initializeApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyA59q1Xf0JqGWzNxHh0ORiXUSN5v_hvcwI",
-  authDomain: "sachio-mobile-toilets-ed86d.firebaseapp.com",
-  databaseURL: "https://sachio-mobile-toilets-ed86d-default-rtdb.firebaseio.com",
-  projectId: "sachio-mobile-toilets-ed86d",
-  storageBucket: "sachio-mobile-toilets-ed86d.firebasestorage.app",
-  messagingSenderId: "1052577492056",
-  appId: "1:1052577492056:web:ab73160d1adf6186a4ae2d",
-  measurementId: "G-WSZ8JN7WNZ",
+  apiKey: "AIzaSyA_c0E_t-mrUyGJQphVXRJBlZ1S3KF24KU",
+  authDomain: "sachio-express-1537f.firebaseapp.com",
+  databaseURL: "https://sachio-express-1537f-default-rtdb.firebaseio.com",
+  projectId: "sachio-express-1537f",
+  storageBucket: "sachio-express-1537f.firebasestorage.app",
+  messagingSenderId: "89011298329",
+  appId: "1:89011298329:web:1cce246dbee98fd3348a88",
+  measurementId: "G-2LCP3DC544",
 };
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
 export const db = getFirestore(app);
-

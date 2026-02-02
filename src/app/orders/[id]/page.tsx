@@ -25,11 +25,19 @@ export default function OrderDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [drivers, setDrivers] = useState<{ id: string; label: string; email?: string; active?: boolean }[]>([]);
   const [driverId, setDriverId] = useState<string>("");
-  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [driverLocation, setDriverLocation] = useState<{
+    lat: number;
+    lng: number;
+    speed?: number | null;
+    heading?: number | null;
+  } | null>(null);
   const [driverLocationUpdatedAt, setDriverLocationUpdatedAt] = useState<Date | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapStyleMode, setMapStyleMode] = useState<"light" | "dark">("light");
   const [routeInfo, setRouteInfo] = useState<{ distanceText: string; durationText: string } | null>(null);
+  const [routePath, setRoutePath] = useState<any[]>([]);
+  const [offRoute, setOffRoute] = useState(false);
+  const [arrivalSoon, setArrivalSoon] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -121,7 +129,7 @@ export default function OrderDetailPage() {
         return;
       }
       const script = document.createElement("script");
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places,geometry`;
       script.async = true;
       script.onload = () => {
         if (!cancelled) setMapReady(true);
@@ -153,7 +161,12 @@ export default function OrderDetailPage() {
         }
         const data = snap.data() as any;
         if (typeof data?.lat === "number" && typeof data?.lng === "number") {
-          setDriverLocation({ lat: data.lat, lng: data.lng });
+          setDriverLocation({
+            lat: data.lat,
+            lng: data.lng,
+            speed: typeof data?.speed === "number" ? data.speed : null,
+            heading: typeof data?.heading === "number" ? data.heading : null,
+          });
         } else {
           setDriverLocation(null);
         }
@@ -208,8 +221,22 @@ export default function OrderDetailPage() {
     return "Active";
   }, [driverLocationUpdatedAt, drivers, driverId]);
 
+  const speedKmh = useMemo(() => {
+    if (driverLocation?.speed == null) return null;
+    return Math.round(driverLocation.speed * 3.6);
+  }, [driverLocation]);
+
+  const headingLabel = useMemo(() => {
+    if (driverLocation?.heading == null) return null;
+    const heading = Math.round(driverLocation.heading);
+    const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    const idx = Math.round(((heading % 360) / 45)) % 8;
+    return `${heading}° ${dirs[idx]}`;
+  }, [driverLocation]);
+
   const driverMarkerRef = useRef<any>(null);
   const destinationMarkerRef = useRef<any>(null);
+
 
   useEffect(() => {
     if (!mapReady || !mapContainerRef.current) return;
@@ -355,12 +382,14 @@ export default function OrderDetailPage() {
           if (status === "OK" && result) {
             directionsRendererRef.current?.setDirections(result);
             const leg = result.routes?.[0]?.legs?.[0];
+            setRoutePath(result.routes?.[0]?.overview_path ?? []);
             if (leg?.distance?.text && leg?.duration?.text) {
               setRouteInfo({ distanceText: leg.distance.text, durationText: leg.duration.text });
             }
           } else {
             directionsRendererRef.current?.setDirections({ routes: [] });
             setRouteInfo(null);
+            setRoutePath([]);
           }
         }
       );
@@ -369,6 +398,35 @@ export default function OrderDetailPage() {
       setRouteInfo(null);
     }
   }, [mapReady, driverLocation, activeDestination, order?.driverName]);
+
+  useEffect(() => {
+    if (!mapReady || !window.google?.maps?.geometry) return;
+    if (!driverLocation || !activeDestination) {
+      setArrivalSoon(false);
+      return;
+    }
+    const distance =
+      window.google.maps.geometry.spherical.computeDistanceBetween(
+        new window.google.maps.LatLng(driverLocation.lat, driverLocation.lng),
+        new window.google.maps.LatLng(activeDestination.lat, activeDestination.lng)
+      );
+    setArrivalSoon(distance <= 200);
+  }, [mapReady, driverLocation, activeDestination]);
+
+  useEffect(() => {
+    if (!mapReady || !window.google?.maps?.geometry) return;
+    if (!driverLocation || !routePath.length) {
+      setOffRoute(false);
+      return;
+    }
+    const driverPoint = new window.google.maps.LatLng(driverLocation.lat, driverLocation.lng);
+    let minDistance = Number.POSITIVE_INFINITY;
+    routePath.forEach((point) => {
+      const distance = window.google.maps.geometry.spherical.computeDistanceBetween(driverPoint, point);
+      if (distance < minDistance) minDistance = distance;
+    });
+    setOffRoute(minDistance > 200);
+  }, [mapReady, driverLocation, routePath]);
 
   const applyTypedAddress = () => {
     if (!geocoderRef.current || !addressInputRef.current?.value) return;
@@ -770,6 +828,26 @@ export default function OrderDetailPage() {
                   {isDriverLocationStale ? (
                     <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
                       Location stale
+                    </span>
+                  ) : null}
+                  {speedKmh != null ? (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                      {speedKmh} km/h
+                    </span>
+                  ) : null}
+                  {headingLabel ? (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                      {headingLabel}
+                    </span>
+                  ) : null}
+                  {arrivalSoon ? (
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                      Arriving soon
+                    </span>
+                  ) : null}
+                  {offRoute ? (
+                    <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                      Off route
                     </span>
                   ) : null}
                   {routeInfo ? (
