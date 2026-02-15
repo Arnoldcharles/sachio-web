@@ -106,8 +106,14 @@ const trendOptions = [
   { label: "Last 30 days", days: 30 },
 ];
 
-const ADMIN_UID = "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2";
-const ADMIN_EMAIL = "arnoldcharles028@gmail.com";
+const ADMIN_UIDS = [
+  "GSPPzYGp20aBdNNkOenJjOFOUsy1",
+  "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2",
+] as const;
+const ADMIN_EMAILS = [
+  "hello@sachioexpress.com",
+  "arnoldcharles028@gmail.com",
+] as const;
 const motivationLines = [
   "Keep the day moving; your decisions set the pace.",
   "Small wins stack up into smooth operations.",

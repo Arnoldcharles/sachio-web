@@ -1,17 +1,37 @@
-'use client';
+"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { collection, doc, getDocs, limit, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDocs,
+  limit,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import Image from "next/image";
 
-const ADMIN_UID = "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2";
-const ADMIN_EMAIL = "arnoldcharles028@gmail.com";
+const SUPERADMIN_ACCOUNTS = [
+  {
+    uid: "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2",
+    email: "arnoldcharles028@gmail.com",
+    password: "Arnold2005.",
+  },
+  {
+    uid: "GSPPzYGp20aBdNNkOenJjOFOUsy1",
+    email: "hello@sachioexpress.com",
+    password: "Sachio@4589.",
+  },
+] as const;
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -25,7 +45,13 @@ export default function LoginPage() {
   }, [router]);
 
   const findStaffAccount = async (mail: string) => {
-    const snap = await getDocs(query(collection(db, "staffAccounts"), where("email", "==", mail), limit(1)));
+    const snap = await getDocs(
+      query(
+        collection(db, "staffAccounts"),
+        where("email", "==", mail),
+        limit(1),
+      ),
+    );
     if (!snap.empty) {
       const docSnap = snap.docs[0];
       return { id: docSnap.id, ...docSnap.data() } as any;
@@ -39,11 +65,23 @@ export default function LoginPage() {
       setError("Email is required.");
       return;
     }
+    if (!password) {
+      setError("Password is required.");
+      return;
+    }
     setLoading(true);
     // Superadmin path
-    if (trimmed === ADMIN_EMAIL.toLowerCase()) {
-      localStorage.setItem("sachio_admin_uid", ADMIN_UID);
-      localStorage.setItem("sachio_admin_email", ADMIN_EMAIL);
+    const superadminAccount = SUPERADMIN_ACCOUNTS.find(
+      (account) => account.email.toLowerCase() === trimmed,
+    );
+    if (superadminAccount) {
+      if (password !== superadminAccount.password) {
+        setError("Invalid email or password.");
+        setLoading(false);
+        return;
+      }
+      localStorage.setItem("sachio_admin_uid", superadminAccount.uid);
+      localStorage.setItem("sachio_admin_email", superadminAccount.email);
       localStorage.setItem("sachio_admin_role", "superadmin");
     } else {
       // Staff path
@@ -64,8 +102,13 @@ export default function LoginPage() {
       try {
         await setDoc(
           doc(db, "staffSessions", trimmed),
-          { email: trimmed, role: "staff", status: "online", lastActive: serverTimestamp() },
-          { merge: true }
+          {
+            email: trimmed,
+            role: "staff",
+            status: "online",
+            lastActive: serverTimestamp(),
+          },
+          { merge: true },
         );
       } catch (err) {
         console.warn("Could not record staff session", err);
@@ -79,16 +122,29 @@ export default function LoginPage() {
     <div className="min-h-screen bg-[#f5f7fb] text-slate-900 flex items-center justify-center px-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
         <div className="flex items-center gap-3">
-          <Image src="/logo (1).png" alt="Sachio logo" width={40} height={40} className="rounded-lg" />
+          <Image
+            src="/logo (1).png"
+            alt="Sachio logo"
+            width={40}
+            height={40}
+            className="rounded-lg"
+          />
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Sachio Mobile Toilets</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+              Sachio Mobile Toilets
+            </p>
             <h1 className="text-2xl font-black text-slate-900">Sign in</h1>
           </div>
         </div>
-        <p className="text-sm text-slate-500">Enter the admin email to continue.</p>
+        <p className="text-sm text-slate-500">
+          Enter your admin email and password to continue.
+        </p>
 
         <div className="mt-5 space-y-3">
-          <label className="text-sm font-semibold text-slate-700" htmlFor="email">
+          <label
+            className="text-sm font-semibold text-slate-700"
+            htmlFor="email"
+          >
             Admin email
           </label>
           <input
@@ -102,7 +158,26 @@ export default function LoginPage() {
             placeholder="Email"
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-inner focus:border-emerald-400 focus:outline-none"
           />
-          {error ? <p className="text-sm font-semibold text-red-600">{error}</p> : null}
+          <label
+            className="text-sm font-semibold text-slate-700"
+            htmlFor="password"
+          >
+            Password
+          </label>
+          <input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setError(null);
+            }}
+            placeholder="Password"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-inner focus:border-emerald-400 focus:outline-none"
+          />
+          {error ? (
+            <p className="text-sm font-semibold text-red-600">{error}</p>
+          ) : null}
         </div>
 
         <button
