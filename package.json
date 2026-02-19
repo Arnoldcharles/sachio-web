@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@emailjs/browser": "^4.4.1",
     "@googlemaps/markerclusterer": "^2.6.2",
     "firebase": "^12.6.0",
     "framer-motion": "^12.23.26",

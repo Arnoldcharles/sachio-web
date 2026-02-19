@@ -20,6 +20,7 @@ import { useRouter } from "next/navigation";
 import { useMemo } from "react";
 import Image from "next/image";
 import { MarkerClusterer } from "@googlemaps/markerclusterer";
+import emailjs from "@emailjs/browser";
 
 declare global {
   interface Window {
@@ -114,6 +115,29 @@ const ADMIN_EMAILS = [
   "hello@sachioexpress.com",
   "arnoldcharles028@gmail.com",
 ] as const;
+const EMAILJS_SERVICE_ID = "service_hze1iqq";
+const EMAILJS_TEMPLATE_ID = "template_wbxwohe";
+const EMAILJS_PUBLIC_KEY = "oVbvaRgeYvDKm2Hwa";
+
+type OrderNotifyEvent = "new" | "paid" | "cancelled";
+
+function normalizeOrderSignal(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .trim();
+}
+
+function isPaidOrderSignal(status: unknown, paymentStatus: unknown) {
+  return (
+    normalizeOrderSignal(status).includes("paid") ||
+    normalizeOrderSignal(paymentStatus).includes("paid")
+  );
+}
+
+function isCancelledOrderSignal(status: unknown) {
+  return normalizeOrderSignal(status).includes("cancel");
+}
 const motivationLines = [
   "Keep the day moving; your decisions set the pace.",
   "Small wins stack up into smooth operations.",
@@ -336,6 +360,8 @@ export default function Home() {
   const rawOrdersRef = useRef<RawOrder[]>([]);
   const productsRef = useRef<Product[]>([]);
   const alertsRef = useRef<Alert[]>([]);
+  const orderSignalRef = useRef<Record<string, { paid: boolean; cancelled: boolean }>>({});
+  const orderWatcherReadyRef = useRef(false);
   const [drivers, setDrivers] = useState<DriverInfo[]>([]);
   const [driverLocations, setDriverLocations] = useState<Record<string, DriverLocation>>({});
   const [mapReady, setMapReady] = useState(false);
@@ -621,6 +647,85 @@ export default function Home() {
       );
     } catch (err) {
       console.warn("Staff session update failed", err);
+    }
+  };
+
+  const buildOrderEmailContent = (event: OrderNotifyEvent, orderId: string, data: Record<string, any>) => {
+    const customerName = data.customerName || data.name || "Unknown customer";
+    const status = normalizeOrderSignal(data.status || "unknown");
+    const typeLabel = String(data.type || "order").toLowerCase().includes("rent")
+      ? "Rental"
+      : "Order";
+    const amount = data.amount ?? data.price ?? data.total;
+    const amountText =
+      amount == null || amount === "" ? "N/A" : `NGN ${Number(amount).toLocaleString()}`;
+    const eventLabel =
+      event === "new" ? "New order received" : event === "paid" ? "Order paid" : "Order cancelled";
+    const subject = `[Sachio] ${eventLabel} - ${orderId}`;
+    const text = [
+      `${eventLabel}`,
+      `Order ID: ${orderId}`,
+      `Type: ${typeLabel}`,
+      `Customer: ${customerName}`,
+      `Status: ${status || "unknown"}`,
+      `Amount: ${amountText}`,
+    ].join("\n");
+    return { subject, text, customerName, status, typeLabel, amountText, eventLabel };
+  };
+
+  const sendViaEmailJs = async (event: OrderNotifyEvent, orderId: string, data: Record<string, any>) => {
+    const payload = buildOrderEmailContent(event, orderId, data);
+    try {
+      await Promise.all(
+        ADMIN_EMAILS.map((toEmail) =>
+          emailjs.send(
+            EMAILJS_SERVICE_ID,
+            EMAILJS_TEMPLATE_ID,
+            {
+              to_email: toEmail,
+              event_type: payload.eventLabel,
+              order_id: orderId,
+              customer_name: payload.customerName,
+              order_status: payload.status,
+              order_type: payload.typeLabel,
+              amount: payload.amountText,
+              subject: payload.subject,
+              message: payload.text,
+            },
+            { publicKey: EMAILJS_PUBLIC_KEY }
+          )
+        )
+      );
+    } catch (err) {
+      console.warn("EmailJS fallback failed", err);
+    }
+  };
+
+  const notifyOrderEventWithFallback = async (
+    event: OrderNotifyEvent,
+    orderId: string,
+    data: Record<string, any>
+  ) => {
+    const payload = buildOrderEmailContent(event, orderId, data);
+    try {
+      await Promise.all(
+        ADMIN_EMAILS.map((toEmail) =>
+          addDoc(collection(db, "mailQueue"), {
+            to: [toEmail],
+            message: {
+              subject: payload.subject,
+              text: payload.text,
+            },
+            orderId,
+            event,
+            source: "dashboard",
+            createdAt: serverTimestamp(),
+          })
+        )
+      );
+    } catch (err) {
+      console.warn("mailQueue enqueue failed. Trying EmailJS fallback", err);
+      await sendViaEmailJs(event, orderId, data);
     }
   };
 
@@ -932,6 +1037,47 @@ export default function Home() {
       ordersQueryLive,
       (snapshot) => {
         if (!mounted) return;
+        const currentIds = new Set<string>();
+        snapshot.docs.forEach((docSnap) => {
+          currentIds.add(docSnap.id);
+          const d = docSnap.data() as any;
+          const nextPaid = isPaidOrderSignal(d.status, d.paymentStatus);
+          const nextCancelled = isCancelledOrderSignal(d.status);
+          const prev = orderSignalRef.current[docSnap.id];
+          const canNotify = orderWatcherReadyRef.current;
+
+          if (!prev) {
+            orderSignalRef.current[docSnap.id] = {
+              paid: nextPaid,
+              cancelled: nextCancelled,
+            };
+            if (canNotify) {
+              notifyOrderEventWithFallback("new", docSnap.id, d);
+            }
+            return;
+          }
+
+          if (canNotify && !prev.paid && nextPaid) {
+            notifyOrderEventWithFallback("paid", docSnap.id, d);
+          }
+          if (canNotify && !prev.cancelled && nextCancelled) {
+            notifyOrderEventWithFallback("cancelled", docSnap.id, d);
+          }
+
+          orderSignalRef.current[docSnap.id] = {
+            paid: nextPaid,
+            cancelled: nextCancelled,
+          };
+        });
+        Object.keys(orderSignalRef.current).forEach((id) => {
+          if (!currentIds.has(id)) {
+            delete orderSignalRef.current[id];
+          }
+        });
+        if (!orderWatcherReadyRef.current) {
+          orderWatcherReadyRef.current = true;
+        }
+
         const rawOrders: RawOrder[] = snapshot.docs.map((doc) => {
           const d = doc.data() as any;
           return {
