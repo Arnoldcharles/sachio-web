@@ -113,7 +113,7 @@ const ADMIN_UIDS = [
 const ADMIN_EMAILS = [
   "arnoldcharles028@gmail.com",
 ] as const;
-const EMAILJS_SERVICE_ID = "service_hze1iqq";
+const EMAILJS_SERVICE_ID = "service_hs0jstk";
 const EMAILJS_TEMPLATE_ID = "template_qka2ktc";
 const EMAILJS_PUBLIC_KEY = "oVbvaRgeYvDKm2Hwa";
 
