@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  addDoc,
   collection,
   doc,
   getDocs,
@@ -721,33 +720,12 @@ export default function Home() {
     }
   };
 
-  const notifyOrderEventWithFallback = async (
+  const notifyOrderEventWithEmailJs = async (
     event: OrderNotifyEvent,
     orderId: string,
     data: Record<string, any>
   ) => {
-    const payload = buildOrderEmailContent(event, orderId, data);
-    try {
-      await Promise.all(
-        ADMIN_EMAILS.map((toEmail) =>
-          addDoc(collection(db, "mailQueue"), {
-            to: [toEmail],
-            message: {
-              subject: payload.subject,
-              text: payload.text,
-            },
-            orderId,
-            event,
-            source: "dashboard",
-            createdAt: serverTimestamp(),
-          })
-        )
-      );
-      await sendViaEmailJs(event, orderId, data);
-    } catch (err) {
-      console.warn("mailQueue enqueue failed. Trying EmailJS fallback", err);
-      await sendViaEmailJs(event, orderId, data);
-    }
+    await sendViaEmailJs(event, orderId, data);
   };
 
   useEffect(() => {
@@ -1073,16 +1051,16 @@ export default function Home() {
               cancelled: nextCancelled,
             };
             if (canNotify) {
-              notifyOrderEventWithFallback("new", docSnap.id, d);
+              notifyOrderEventWithEmailJs("new", docSnap.id, d);
             }
             return;
           }
 
           if (canNotify && !prev.paid && nextPaid) {
-            notifyOrderEventWithFallback("paid", docSnap.id, d);
+            notifyOrderEventWithEmailJs("paid", docSnap.id, d);
           }
           if (canNotify && !prev.cancelled && nextCancelled) {
-            notifyOrderEventWithFallback("cancelled", docSnap.id, d);
+            notifyOrderEventWithEmailJs("cancelled", docSnap.id, d);
           }
 
           orderSignalRef.current[docSnap.id] = {
@@ -2983,4 +2961,3 @@ function buildStatsFromOrders(orders: RawOrder[]) {
     },
   ];
 }
-
