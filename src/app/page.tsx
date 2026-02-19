@@ -111,7 +111,6 @@ const ADMIN_UIDS = [
   "LT2b0m9GGPQMA4OGE8NNJtqM8iZ2",
 ] as const;
 const ADMIN_EMAILS = [
-  "hello@sachioexpress.com",
   "arnoldcharles028@gmail.com",
 ] as const;
 const EMAILJS_SERVICE_ID = "service_hze1iqq";
