@@ -116,7 +116,7 @@ const ADMIN_EMAILS = [
   "arnoldcharles028@gmail.com",
 ] as const;
 const EMAILJS_SERVICE_ID = "service_hze1iqq";
-const EMAILJS_TEMPLATE_ID = "template_wbxwohe";
+const EMAILJS_TEMPLATE_ID = "template_qka2ktc";
 const EMAILJS_PUBLIC_KEY = "oVbvaRgeYvDKm2Hwa";
 
 type OrderNotifyEvent = "new" | "paid" | "cancelled";
@@ -675,6 +675,15 @@ export default function Home() {
 
   const sendViaEmailJs = async (event: OrderNotifyEvent, orderId: string, data: Record<string, any>) => {
     const payload = buildOrderEmailContent(event, orderId, data);
+    const numericAmount = Number(data.amount ?? data.price ?? data.total ?? 0) || 0;
+    const orderTitle =
+      data.productTitle || data.title || data.productId || payload.typeLabel;
+    const eventIntro =
+      event === "new"
+        ? "A new order has been created."
+        : event === "paid"
+        ? "An order has been marked as paid."
+        : "An order has been cancelled.";
     try {
       await Promise.all(
         ADMIN_EMAILS.map((toEmail) =>
@@ -683,14 +692,25 @@ export default function Home() {
             EMAILJS_TEMPLATE_ID,
             {
               to_email: toEmail,
-              event_type: payload.eventLabel,
+              email: toEmail,
+              title: payload.eventLabel,
+              intro: eventIntro,
+              logo_url: "https://sachioexpress.com/logo.png",
               order_id: orderId,
-              customer_name: payload.customerName,
-              order_status: payload.status,
-              order_type: payload.typeLabel,
-              amount: payload.amountText,
-              subject: payload.subject,
-              message: payload.text,
+              orders: [
+                {
+                  name: orderTitle,
+                  image_url:
+                    data.imageUrl || data.productImage || "https://sachioexpress.com/logo.png",
+                  units: Number(data.quantity || 1),
+                  price: numericAmount.toFixed(2),
+                },
+              ],
+              cost: {
+                shipping: Number(data.shipping || 0).toFixed(2),
+                tax: Number(data.tax || 0).toFixed(2),
+                total: numericAmount.toFixed(2),
+              },
             },
             { publicKey: EMAILJS_PUBLIC_KEY }
           )
@@ -723,6 +743,7 @@ export default function Home() {
           })
         )
       );
+      await sendViaEmailJs(event, orderId, data);
     } catch (err) {
       console.warn("mailQueue enqueue failed. Trying EmailJS fallback", err);
       await sendViaEmailJs(event, orderId, data);
