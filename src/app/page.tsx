@@ -113,7 +113,7 @@ const ADMIN_UIDS = [
 const ADMIN_EMAILS = [
   "arnoldcharles028@gmail.com",
 ] as const;
-const EMAILJS_SERVICE_ID = "service_hs0jstk";
+const EMAILJS_SERVICE_ID = "service_hze1iqq";
 const EMAILJS_TEMPLATE_ID = "template_qka2ktc";
 const EMAILJS_PUBLIC_KEY = "oVbvaRgeYvDKm2Hwa";
 
@@ -673,15 +673,29 @@ export default function Home() {
 
   const sendViaEmailJs = async (event: OrderNotifyEvent, orderId: string, data: Record<string, any>) => {
     const payload = buildOrderEmailContent(event, orderId, data);
-    const numericAmount = Number(data.amount ?? data.price ?? data.total ?? 0) || 0;
-    const orderTitle =
-      data.productTitle || data.title || data.productId || payload.typeLabel;
     const eventIntro =
       event === "new"
         ? "A new order has been created."
         : event === "paid"
         ? "An order has been marked as paid."
         : "An order has been cancelled.";
+    const customerEmail = data.customerEmail || data.email || "N/A";
+    const customerPhone = data.customerPhone || data.phone || "N/A";
+    const toiletsRequired = data.toiletsRequired || data.quantity || "N/A";
+    const eventType =
+      data.eventType ||
+      data.weddingType ||
+      data.rentalType ||
+      (Array.isArray(data.productType) ? data.productType.join(", ") : data.productType) ||
+      "N/A";
+    const eventDuration = data.duration ? `${data.duration}` : "N/A";
+    const eventDate =
+      data.eventDate ||
+      (data.rentalStartDate
+        ? `${data.rentalStartDate}${data.rentalEndDate ? ` - ${data.rentalEndDate}` : ""}`
+        : "N/A");
+    const eventLocation = data.location || data.customerAddress || data.destinationAddress || "N/A";
+    const eventState = data.state || "N/A";
     try {
       await Promise.all(
         ADMIN_EMAILS.map((toEmail) =>
@@ -693,22 +707,20 @@ export default function Home() {
               email: toEmail,
               title: payload.eventLabel,
               intro: eventIntro,
-              logo_url: "https://sachioexpress.com/logo.png",
               order_id: orderId,
-              orders: [
-                {
-                  name: orderTitle,
-                  image_url:
-                    data.imageUrl || data.productImage || "https://sachioexpress.com/logo.png",
-                  units: Number(data.quantity || 1),
-                  price: numericAmount.toFixed(2),
-                },
-              ],
-              cost: {
-                shipping: Number(data.shipping || 0).toFixed(2),
-                tax: Number(data.tax || 0).toFixed(2),
-                total: numericAmount.toFixed(2),
-              },
+              customer_name: payload.customerName,
+              customer_email: customerEmail,
+              customer_phone: customerPhone,
+              order_type: payload.typeLabel,
+              order_status: payload.status || "unknown",
+              amount: payload.amountText,
+              toilets_required: `${toiletsRequired}`,
+              event_type: `${eventType}`,
+              event_duration: `${eventDuration}`,
+              event_date: `${eventDate}`,
+              event_location: `${eventLocation}`,
+              event_state: `${eventState}`,
+              message: payload.text,
             },
             { publicKey: EMAILJS_PUBLIC_KEY }
           )
