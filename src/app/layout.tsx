@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ThemeClient from "./theme-client";
@@ -18,7 +18,6 @@ export const metadata: Metadata = {
   description: "Internal analytics and operations panel for Sachio Mobile Toilets",
   applicationName: "Sachio Admin Dashboard",
   manifest: "/manifest.json",
-  themeColor: "#0A1AFF",
   icons: {
     icon: [
       { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
@@ -31,6 +30,10 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "Sachio Admin",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0A1AFF",
 };
 
 export default function RootLayout({
