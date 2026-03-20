@@ -47,12 +47,14 @@ export type OrderStatus =
   | "Cancelled_by_admin"
   | "In transit"
   | "Completed";
+type PaymentKind = "Card" | "Transfer" | "Unknown";
 type RawOrder = {
   id: string;
   customer: string;
   type: "Buy" | "Rent";
   amount: number;
   status: OrderStatus;
+  payment: PaymentKind;
   eta: string;
   createdAt: Date | null;
 };
@@ -62,6 +64,7 @@ type Order = {
   type: "Buy" | "Rent";
   total: string;
   status: OrderStatus;
+  payment: PaymentKind;
   eta: string;
 };
 type Product = {
@@ -135,6 +138,23 @@ function isPaidOrderSignal(status: unknown, paymentStatus: unknown) {
 
 function isCancelledOrderSignal(status: unknown) {
   return normalizeOrderSignal(status).includes("cancel");
+}
+
+function normalizePaymentKind(
+  paymentMethod: unknown,
+  paymentMethodId: unknown
+): PaymentKind {
+  const method = normalizeOrderSignal(paymentMethod);
+  const id = normalizeOrderSignal(paymentMethodId);
+  if (
+    id.includes("providus") ||
+    method.includes("providus") ||
+    method.includes("card")
+  ) {
+    return "Card";
+  }
+  if (method.includes("transfer") || id.includes("transfer")) return "Transfer";
+  return "Unknown";
 }
 const motivationLines = [
   "Keep the day moving; your decisions set the pace.",
@@ -263,6 +283,7 @@ const fallbackData: DashboardData = {
       id: "ORD-1024",
       customer: "Halima O.",
       type: "Rent",
+      payment: "Transfer",
       total: "NGN 420,000",
       status: "Processing",
       eta: "Today, 4:00PM",
@@ -271,6 +292,7 @@ const fallbackData: DashboardData = {
       id: "ORD-1023",
       customer: "Bright Events",
       type: "Buy",
+      payment: "Card",
       total: "NGN 1,200,000",
       status: "Dispatched",
       eta: "Today, 6:30PM",
@@ -279,6 +301,7 @@ const fallbackData: DashboardData = {
       id: "ORD-1022",
       customer: "MegaBuild",
       type: "Rent",
+      payment: "Card",
       total: "NGN 680,000",
       status: "Delivered",
       eta: "Yesterday",
@@ -287,6 +310,7 @@ const fallbackData: DashboardData = {
       id: "ORD-1021",
       customer: "Chika I.",
       type: "Rent",
+      payment: "Unknown",
       total: "NGN 220,000",
       status: "Cancelled",
       eta: "-",
@@ -935,12 +959,14 @@ export default function Home() {
         const ordersSnap = await getDocs(ordersQuery);
         const rawOrders: RawOrder[] = ordersSnap.docs.map((doc) => {
           const d = doc.data() as any;
+          const amount = Number(d.total ?? d.amount ?? d.price ?? 0) || 0;
           return {
             id: doc.id,
             customer: d.customerName ?? "Unknown",
             type: (d.type === "rent" ? "Rent" : "Buy") as Order["type"],
-            amount: Number(d.price) || 0,
             status: normalizeStatus(d.status),
+            payment: normalizePaymentKind(d.paymentMethod, d.paymentMethodId),
+            amount,
             eta: d.eta ?? "-",
             createdAt: d.createdAt?.toDate
               ? d.createdAt.toDate()
@@ -1090,12 +1116,14 @@ export default function Home() {
 
         const rawOrders: RawOrder[] = snapshot.docs.map((doc) => {
           const d = doc.data() as any;
+          const amount = Number(d.total ?? d.amount ?? d.price ?? 0) || 0;
           return {
             id: doc.id,
             customer: d.customerName ?? "Unknown",
             type: (d.type === "rent" ? "Rent" : "Buy") as Order["type"],
-            amount: Number(d.price) || 0,
             status: normalizeStatus(d.status),
+            payment: normalizePaymentKind(d.paymentMethod, d.paymentMethodId),
+            amount,
             eta: d.eta ?? "-",
             createdAt: d.createdAt?.toDate
               ? d.createdAt.toDate()
@@ -1145,6 +1173,7 @@ export default function Home() {
           type: o.type,
           amount: Number(o.total.replace(/[^\d.]/g, "")) || 0,
           status: o.status,
+          payment: o.payment,
           eta: o.eta,
           createdAt: null,
         })), products, data.alerts);
@@ -1512,6 +1541,9 @@ export default function Home() {
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
                           {order.type}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+                          {order.payment}
                         </span>
                         <span className="font-bold text-slate-900">
                           {order.total}
@@ -1942,6 +1974,7 @@ export default function Home() {
                         <th className="px-4 py-3">Order</th>
                         <th className="px-4 py-3">Customer</th>
                         <th className="px-4 py-3">Type</th>
+                        <th className="px-4 py-3">Payment</th>
                         <th className="px-4 py-3">Total</th>
                         <th className="px-4 py-3">Status</th>
                         <th className="px-4 py-3 text-right">ETA</th>
@@ -1969,6 +2002,11 @@ export default function Home() {
                           <td className="px-4 py-3">
                             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
                               {order.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+                              {order.payment}
                             </span>
                           </td>
                           <td className="px-4 py-3 font-bold text-slate-900">
@@ -2012,6 +2050,9 @@ export default function Home() {
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
                           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">
                             {order.type}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                            {order.payment}
                           </span>
                           <span className="text-slate-900">{order.total}</span>
                           <span className="text-slate-500">{order.eta}</span>

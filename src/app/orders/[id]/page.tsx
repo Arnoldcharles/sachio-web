@@ -629,7 +629,7 @@ export default function OrderDetailPage() {
                     <p className="text-base font-bold text-slate-900">
                       {order.type === "rent" && order.amount == null
                         ? "Waiting price"
-                        : `ƒ,İ${Number(order.amount ?? order.price ?? 0).toLocaleString()}`}
+                        : `₦${Number(order.amount ?? order.price ?? 0).toLocaleString()}`}
                     </p>
                   </div>
                   <div>

@@ -190,17 +190,18 @@ export default function OrdersPage() {
                     <td className="px-4 py-3 font-bold text-slate-900">
                       {order.type === "Rent" && order.price == null
                         ? "Waiting price"
-                        : `ƒ,İ${Number(order.price ?? 0).toLocaleString()}`}
+                        : `₦${Number(order.price ?? 0).toLocaleString()}`}
                     </td>
                     <td className="px-4 py-3">
                       <StatusPill status={order.status as OrderStatus} />
                     </td>
                     <td className="px-4 py-3 text-xs font-semibold">
-                      {order.type !== "Rent" ? (
-                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">Paid</span>
-                      ) : String(order.paymentStatus || order.status || "")
-                          .toLowerCase()
-                          .includes("paid") ? (
+                      {String(`${order.paymentStatus ?? ""} ${order.status ?? ""}`)
+                        .toLowerCase()
+                        .includes("paid") ||
+                      String(`${order.paymentStatus ?? ""} ${order.status ?? ""}`)
+                        .toLowerCase()
+                        .includes("complete") ? (
                         <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">Paid</span>
                       ) : (
                         <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">Unpaid</span>
